@@ -2,6 +2,19 @@ from aiohttp import web
 import json
 import asyncio
 
+async def get_models(request):
+    return web.json_response({
+        "object": "list",
+        "data": [
+            {
+                "id": "tiny-model",
+                "object": "model",
+                "created": 1677610602,
+                "owned_by": "organization-owner"
+            }
+        ]
+    })
+
 async def chat_completions(request):
     try:
         data = await request.json()
@@ -38,6 +51,7 @@ async def chat_completions(request):
     return response
 
 app = web.Application()
+app.router.add_get('/v1/models', get_models)
 app.router.add_post('/v1/chat/completions', chat_completions)
 
 if __name__ == '__main__':

@@ -26,7 +26,8 @@ jobs:
     - name: Run mock server
       run: |
         python tests/mock_server.py &
-        sleep 5
+        # Wait for mock server to be ready
+        timeout 30 bash -c 'until curl -sf http://localhost:8000/v1/models; do sleep 1; done' || (echo "Mock server failed to start" && exit 1)
 
     - name: Run Orchestrator against mock server
       run: |
@@ -47,8 +48,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VLLM_TARGET_DEVICE: cpu
-      VLLM_DEVICE: cpu
       VLLM_NO_USAGE_STATS: 1
+      # GHA runners have limited RAM (~7GB), reduce KV cache space
+      VLLM_CPU_KVCACHE_SPACE: 1
     steps:
     - uses: actions/checkout@v4
 
@@ -62,23 +64,26 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         # Install vLLM-CPU which is optimized for CPU-only environments
+        # We do NOT install the 'vllm' package as it can conflict with 'vllm-cpu'
         pip install vllm-cpu --extra-index-url https://download.pytorch.org/whl/cpu
-        # Some versions of vLLM CLI check for the 'vllm' package metadata
-        pip install --no-deps vllm
 
     - name: Run vLLM server
       run: |
         # Use a very small model (facebook/opt-125m) and CPU mode
         # dtype float is safer on CPU than half or auto
-        vllm serve facebook/opt-125m \
-          --device cpu \
+        # Reduce max-model-len and block-size for lower memory consumption on CI
+        # Note: using the module entrypoint as the CLI might have metadata issues
+        python -m vllm.entrypoints.openai.api_server \
+          --model facebook/opt-125m \
           --dtype float \
           --enforce-eager \
-          --max-model-len 1024 &
+          --max-model-len 512 \
+          --block-size 16 \
+          --chat-template tests/dummy_chat_template.jinja > vllm.log 2>&1 &
 
         # Wait for vLLM to be ready
         # If vLLM fails to start (e.g. CPU instruction set mismatch), we'll catch it in the next step
-        timeout 300 bash -c 'until curl -s http://localhost:8000/v1/models; do sleep 10; done' || (echo "vLLM failed to start within timeout" && exit 1)
+        timeout 300 bash -c 'until curl -sf http://localhost:8000/v1/models; do sleep 10; done' || (echo "vLLM failed to start within timeout" && exit 1)
 
     - name: Run Orchestrator against vLLM
       run: |
@@ -88,7 +93,7 @@ jobs:
           --gpu mock-cpu-gpu \
           --concurrency-levels 1 2 \
           --requests-per-level 5 \
-          --run
+          --run || (echo "Benchmark failed, printing vLLM logs:" && cat vllm.log && exit 1)
 
     - name: Check benchmark results
       run: |
