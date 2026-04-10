@@ -68,35 +68,6 @@ jobs:
         # We do NOT install the 'vllm' package as it can conflict with 'vllm-cpu'
         pip install vllm-cpu --extra-index-url https://download.pytorch.org/whl/cpu
 
-    - name: Run vLLM server
+    - name: Run Micro Runtime Test (vLLM on CPU)
       run: |
-        # Use a very small model (facebook/opt-125m) and CPU mode
-        # dtype float is safer on CPU than half or auto
-        # Reduce max-model-len and block-size for lower memory consumption on CI
-        # Note: using the module entrypoint as the CLI might have metadata issues
-        python -m vllm.entrypoints.openai.api_server \
-          --model facebook/opt-125m \
-          --dtype float \
-          --enforce-eager \
-          --max-model-len 512 \
-          --block-size 16 \
-          --chat-template tests/dummy_chat_template.jinja > vllm.log 2>&1 &
-
-        # Wait for vLLM to be ready
-        # If vLLM fails to start (e.g. CPU instruction set mismatch), we'll catch it in the next step
-        timeout 300 bash -c 'until curl -sf http://localhost:8000/v1/models; do sleep 10; done' || (echo "vLLM failed to start within timeout" && exit 1)
-
-    - name: Run Orchestrator against vLLM
-      run: |
-        python orchestrator.py \
-          --url http://localhost:8000 \
-          --model facebook/opt-125m \
-          --gpu mock-cpu-gpu \
-          --concurrency-levels 1 2 \
-          --requests-per-level 5 \
-          --run || (echo "Benchmark failed, printing vLLM logs:" && cat vllm.log && exit 1)
-
-    - name: Check benchmark results
-      run: |
-        ls benchmark_mock-cpu-gpu_*.json
-        cat benchmark_mock-cpu-gpu_*.json | jq '.'
+        python tests/micro_runtime_test.py

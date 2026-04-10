@@ -52,6 +52,19 @@ To avoid unnecessary charges, analyze your results and destroy the instance imme
     - **ITL:** Inter-Token Latency (lower is better).
     - **TPS:** Tokens Per Second (higher is better).
 
+## Local Verification (Micro Runtime Test)
+If you want to verify the entire stack (Orchestrator + Load Tester + vLLM) without renting a GPU, you can run the micro runtime test on your local CPU. This uses a tiny 125M parameter model.
+
+- [ ] **Install vLLM-CPU:**
+  ```bash
+  pip install vllm-cpu --extra-index-url https://download.pytorch.org/whl/cpu
+  ```
+- [ ] **Run the Test:**
+  ```bash
+  python tests/micro_runtime_test.py
+  ```
+This script automates the server startup, benchmarking, and result verification.
+
 ## Phase 5: Fast Cleanup
 - [ ] **Destroy Instance:** Immediately go back to the [Vast.ai Console](https://vast.ai/console/instances/) and destroy the instance. For expensive hardware, every minute counts.
 
