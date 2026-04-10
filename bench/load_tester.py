@@ -61,6 +61,26 @@ class LoadTester:
             print(f"Request failed: {e}")
             return None
 
+    async def wait_for_ready(self, timeout=600):
+        """Wait for the LLM server to be ready by polling the /v1/models endpoint."""
+        print(f"Waiting for LLM server at {self.base_url} to be ready...")
+        start_time = time.perf_counter()
+        url = f"{self.base_url}/v1/models"
+
+        async with aiohttp.ClientSession() as session:
+            while time.perf_counter() - start_time < timeout:
+                try:
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            print("LLM server is ready.")
+                            return True
+                except Exception:
+                    pass
+                await asyncio.sleep(10)
+
+        print(f"Timeout waiting for LLM server at {self.base_url}")
+        return False
+
     async def run_benchmark(self, concurrency, num_requests, prompt="Explain quantum physics in one sentence."):
         async with aiohttp.ClientSession() as session:
             tasks = []

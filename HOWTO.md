@@ -32,10 +32,15 @@ This guide provides a step-by-step checklist to benchmark LLMs directly on a Vas
              -v ~/.cache/huggingface:/root/.cache/huggingface \
              -e HF_TOKEN=<your_token> \
              -p 8000:8000 vllm/vllm-openai:v0.4.0 \
-             --model google/gemma-2-9b-it
+             --model google/gemma-2-9b-it \
+             --dtype float \
+             --enforce-eager \
+             --max-model-len 512 \
+             --block-size 16
   ```
 - [ ] **Run Orchestrator:**
   ```bash
+  # The orchestrator will automatically wait for the LLM engine to be ready.
   python3 orchestrator.py --gpu "RTX 4090" --model "gemma-2-9b-it" --url http://localhost:8000 --run
   ```
 

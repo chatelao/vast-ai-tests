@@ -48,6 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VLLM_TARGET_DEVICE: cpu
+      VLLM_DEVICE: cpu
       VLLM_NO_USAGE_STATS: 1
       # GHA runners have limited RAM (~7GB), reduce KV cache space
       VLLM_CPU_KVCACHE_SPACE: 1

@@ -16,7 +16,7 @@ class Orchestrator:
             self._vast = VastManager(api_key=self.api_key)
         return self._vast
 
-    async def run_suite(self, gpu_name, model_name, url=None, concurrency_levels=[1, 4, 16], requests_per_level=10):
+    async def run_suite(self, gpu_name, model_name, url=None, concurrency_levels=[1, 4, 16], requests_per_level=10, wait_timeout=600):
         print(f"Starting benchmark suite for {model_name} on {gpu_name}")
 
         instance_id = None
@@ -49,14 +49,19 @@ class Orchestrator:
 
                 # Implementation Note: In a production environment, this step would involve
                 # using an SSH library (like Paramiko) to run 'docker run' on the remote host.
-                # Example:
-                # ssh.exec_command("docker run -d --gpus all -p 8000:8000 vllm/vllm-openai --model gemma-7b")
+                # Example for vLLM:
+                # ssh.exec_command("python -m vllm.entrypoints.openai.api_server --model google/gemma-7b --dtype float --enforce-eager --max-model-len 512 --block-size 16")
 
                 print("To complete the test, ensure the LLM engine is running on the remote host.")
                 print(f"URL: {api_url}")
 
             # 3. Run benchmarks
             tester = LoadTester(api_url, model_name)
+
+            # Wait for server to be ready
+            if not await tester.wait_for_ready(timeout=wait_timeout):
+                print("Server failed to become ready. Aborting.")
+                return
 
             all_results = []
             for c in concurrency_levels:
@@ -96,6 +101,7 @@ if __name__ == "__main__":
     parser.add_argument("--run", action="store_true", help="Actually run the suite (requires Vast.ai credits)")
     parser.add_argument("--concurrency-levels", type=int, nargs="+", default=[1, 4, 16], help="Concurrency levels to test")
     parser.add_argument("--requests-per-level", type=int, default=10, help="Number of requests per concurrency level")
+    parser.add_argument("--wait-timeout", type=int, default=600, help="Seconds to wait for the LLM server to be ready")
 
     args = parser.parse_args()
     orch = Orchestrator()
@@ -106,7 +112,8 @@ if __name__ == "__main__":
             args.model,
             url=args.url,
             concurrency_levels=args.concurrency_levels,
-            requests_per_level=args.requests_per_level
+            requests_per_level=args.requests_per_level,
+            wait_timeout=args.wait_timeout
         ))
     else:
         print("Orchestrator initialized.")
