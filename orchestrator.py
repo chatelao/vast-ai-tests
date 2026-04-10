@@ -7,7 +7,14 @@ from bench.load_tester import LoadTester
 
 class Orchestrator:
     def __init__(self, api_key=None):
-        self.vast = VastManager(api_key=api_key)
+        self.api_key = api_key
+        self._vast = None
+
+    @property
+    def vast(self):
+        if self._vast is None:
+            self._vast = VastManager(api_key=self.api_key)
+        return self._vast
 
     async def run_suite(self, gpu_name, model_name, url=None, concurrency_levels=[1, 4, 16], requests_per_level=10):
         print(f"Starting benchmark suite for {model_name} on {gpu_name}")
@@ -87,12 +94,20 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="gemma-7b", help="Model name")
     parser.add_argument("--url", type=str, help="Existing API endpoint URL (skips provisioning)")
     parser.add_argument("--run", action="store_true", help="Actually run the suite (requires Vast.ai credits)")
+    parser.add_argument("--concurrency-levels", type=int, nargs="+", default=[1, 4, 16], help="Concurrency levels to test")
+    parser.add_argument("--requests-per-level", type=int, default=10, help="Number of requests per concurrency level")
 
     args = parser.parse_args()
     orch = Orchestrator()
 
     if args.run:
-        asyncio.run(orch.run_suite(args.gpu, args.model, url=args.url))
+        asyncio.run(orch.run_suite(
+            args.gpu,
+            args.model,
+            url=args.url,
+            concurrency_levels=args.concurrency_levels,
+            requests_per_level=args.requests_per_level
+        ))
     else:
         print("Orchestrator initialized.")
         print(f"Dry-run: Would test {args.model} on {args.gpu}")
