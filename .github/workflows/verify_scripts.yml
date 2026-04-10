@@ -61,13 +61,14 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         # Install vLLM-CPU which is optimized for CPU-only environments
-        pip install vllm-cpu
+        # We need the extra-index-url for torch+cpu dependencies
+        pip install vllm-cpu --extra-index-url https://download.pytorch.org/whl/cpu
 
     - name: Run vLLM server
       run: |
         # Use a very small model (facebook/opt-125m) and CPU mode
-        python -m vllm.entrypoints.openai.api_server \
-          --model facebook/opt-125m \
+        # Using 'vllm serve' which is the recommended entrypoint in newer versions
+        vllm serve facebook/opt-125m \
           --device cpu \
           --dtype float \
           --enforce-eager \
