@@ -59,6 +59,25 @@ You can use the Orchestrator for an automated flow, but note that it currently r
   ```
   *Note: You will need to manually start the LLM server on the instance when the script prompts you.*
 
+### Option C: Local Benchmarking (Run on the Vast.ai instance)
+For the most accurate hardware metrics, you can run the benchmarking tools directly on the rented instance. This eliminates network latency between your local machine and the instance.
+
+- [ ] **SSH into the instance:** Use the credentials provided when renting.
+- [ ] **Setup Environment:**
+  ```bash
+  git clone <repo-url>
+  cd avast-ai-tests
+  pip install -r requirements.txt
+  ```
+- [ ] **Start LLM Engine:** (In a separate terminal or background)
+  ```bash
+  docker run --gpus all -p 8000:8000 vllm/vllm-openai --model google/gemma-2-9b-it
+  ```
+- [ ] **Run Orchestrator with Local URL:**
+  ```bash
+  python3 orchestrator.py --gpu "RTX 4090" --model "gemma-2-9b-it" --url http://localhost:8000 --run
+  ```
+
 ## Phase 5: Analyze Results
 - [ ] **Check Output File:** Results are saved as `benchmark_<gpu>_<timestamp>.json`.
 - [ ] **Verify Metrics:**
