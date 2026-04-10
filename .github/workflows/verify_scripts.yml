@@ -63,9 +63,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         # Install vLLM-CPU which is optimized for CPU-only environments
+        # We do NOT install the 'vllm' package as it can conflict with 'vllm-cpu'
         pip install vllm-cpu --extra-index-url https://download.pytorch.org/whl/cpu
-        # Some versions of vLLM CLI check for the 'vllm' package metadata
-        pip install --no-deps vllm
 
     - name: Run vLLM server
       run: |
