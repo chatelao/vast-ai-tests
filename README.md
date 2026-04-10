@@ -1,3 +1,18 @@
+# avast-ai-tests
+
+## Source
+https://huggingface.co/google/gemma-4-E4B-it
+
+## Installation
+```
+docker run --gpus all \
+           -v ~/.cache/huggingface:/root/.cache/huggingface \
+           -e HF_TOKEN=<your_token> \
+           -p 8000:8000 vllm/vllm-openai:v0.4.0 \
+           --model google/gemma-4-31b-it \
+           --tensor-parallel-size 2
+```
+
 # Gemma Performance Lab on Vast.ai
 
 This framework automates the benchmarking of Gemma models (and other LLMs) across different hardware configurations on Vast.ai. It measures critical performance metrics like Time to First Token (TTFT), Inter-Token Latency (ITL), and total throughput.
@@ -55,3 +70,4 @@ python3 orchestrator.py --gpu "RTX_4090" --model "gemma-2-9b"
 - **ITL:** Inter-Token Latency (ms) - Measures reading speed consistency.
 - **TPS:** Tokens Per Second - Measures total throughput.
 - **TPS/$:** Cost efficiency of the hardware.
+
