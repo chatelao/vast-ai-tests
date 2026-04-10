@@ -54,3 +54,14 @@ To avoid unnecessary charges, analyze your results and destroy the instance imme
 
 ## Phase 5: Fast Cleanup
 - [ ] **Destroy Instance:** Immediately go back to the [Vast.ai Console](https://vast.ai/console/instances/) and destroy the instance. For expensive hardware, every minute counts.
+
+## Pro Tip: Using Templates for Even Faster Setup
+Using a **Vast.ai Template** (configured via the Web Console) is significantly faster than manual `docker run` because:
+- **Instant Pull:** The host starts pulling the vLLM image the moment the instance is provisioned.
+- **Zero-Touch:** You can configure the `docker run` command and environment variables (like `HF_TOKEN`) directly in the template.
+- **Parallelism:** The engine starts while you are still SSHing in to clone the benchmarking repo.
+
+To use a template with our tools, find your template's **Hash ID** in the Vast.ai console and pass it to the orchestrator (if supported) or use it in `vast_manager.py`:
+```python
+mgr.rent_instance(offer_id, template_hash="your_template_hash")
+```
