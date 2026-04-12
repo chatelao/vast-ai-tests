@@ -3,6 +3,9 @@ import json
 import time
 import argparse
 import aiohttp
+import os
+import smtplib
+from email.mime.text import MIMEText
 from infra.vast_manager import VastManager
 from bench.load_tester import LoadTester
 
@@ -33,7 +36,28 @@ class Orchestrator:
         print("Timeout waiting for API to be ready.")
         return False
 
-    async def run_suite(self, gpu_name, model_name, url=None, concurrency_levels=[1, 4, 16], requests_per_level=10, wait_timeout=600, prompt="Explain quantum physics in one sentence."):
+    def send_email_report(self, results, recipient, smtp_config):
+        """Sends a benchmark report via email."""
+        print(f"Sending email report to {recipient}...")
+        try:
+            body = "LLM Benchmark Results:\n\n"
+            body += json.dumps(results, indent=2)
+
+            msg = MIMEText(body)
+            msg['Subject'] = f"Benchmark Results: {results[0]['model']} on {results[0]['gpu']}"
+            msg['From'] = smtp_config.get('user')
+            msg['To'] = recipient
+
+            with smtplib.SMTP(smtp_config.get('host'), smtp_config.get('port')) as server:
+                if smtp_config.get('user') and smtp_config.get('password'):
+                    server.starttls()
+                    server.login(smtp_config.get('user'), smtp_config.get('password'))
+                server.send_message(msg)
+            print("Email sent successfully!")
+        except Exception as e:
+            print(f"Failed to send email: {e}")
+
+    async def run_suite(self, gpu_name, model_name, url=None, concurrency_levels=[1, 4, 16], requests_per_level=10, wait_timeout=600, prompt="Explain quantum physics in one sentence.", email_config=None, shutdown_at_exit=False):
         print(f"Starting benchmark suite for {model_name} on {gpu_name}")
 
         instance_id = None
@@ -102,6 +126,10 @@ class Orchestrator:
                 with open(report_file, "w") as f:
                     json.dump(all_results, f, indent=2)
                 print(f"Suite complete. Results saved to {report_file}")
+
+                # 4.5 Send email if configured
+                if email_config and email_config.get('to'):
+                    self.send_email_report(all_results, email_config['to'], email_config['smtp'])
             else:
                 print("No results collected.")
 
@@ -109,6 +137,14 @@ class Orchestrator:
             # 5. Teardown
             if instance_id:
                 self.vast.destroy_instance(instance_id)
+            elif shutdown_at_exit:
+                # If we are running on the instance itself, try to self-destruct
+                print("Shutdown requested. Attempting to identify current instance ID...")
+                self_id = self.vast.get_current_instance_id()
+                if self_id:
+                    self.vast.destroy_instance(self_id)
+                else:
+                    print("Could not identify current instance ID for auto-shutdown.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Gemma Performance Lab Orchestrator")
@@ -121,10 +157,32 @@ if __name__ == "__main__":
     parser.add_argument("--wait-timeout", type=int, default=600, help="Timeout in seconds to wait for API to be ready")
     parser.add_argument("--prompt", type=str, default="Explain quantum physics in one sentence.", help="Prompt to use for benchmarking")
 
+    # Email arguments
+    parser.add_argument("--email", type=str, help="Recipient email address for results")
+    parser.add_argument("--smtp-host", type=str, default=os.getenv("SMTP_HOST"), help="SMTP server host")
+    parser.add_argument("--smtp-port", type=int, default=int(os.getenv("SMTP_PORT", "587")), help="SMTP server port")
+    parser.add_argument("--smtp-user", type=str, default=os.getenv("SMTP_USER"), help="SMTP username")
+    parser.add_argument("--smtp-password", type=str, default=os.getenv("SMTP_PASSWORD"), help="SMTP password")
+
+    # Shutdown argument
+    parser.add_argument("--shutdown", action="store_true", help="Auto-shutdown the Vast.ai instance after completion")
+
     args = parser.parse_args()
     orch = Orchestrator()
 
     if args.run:
+        email_config = None
+        if args.email:
+            email_config = {
+                'to': args.email,
+                'smtp': {
+                    'host': args.smtp_host,
+                    'port': args.smtp_port,
+                    'user': args.smtp_user,
+                    'password': args.smtp_password
+                }
+            }
+
         asyncio.run(orch.run_suite(
             args.gpu,
             args.model,
@@ -132,7 +190,9 @@ if __name__ == "__main__":
             concurrency_levels=args.concurrency_levels,
             requests_per_level=args.requests_per_level,
             wait_timeout=args.wait_timeout,
-            prompt=args.prompt
+            prompt=args.prompt,
+            email_config=email_config,
+            shutdown_at_exit=args.shutdown
         ))
     else:
         print("Orchestrator initialized.")

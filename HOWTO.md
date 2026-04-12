@@ -78,3 +78,46 @@ To use a template with our tools, find your template's **Hash ID** in the Vast.a
 ```python
 mgr.rent_instance(offer_id, template_hash="your_template_hash")
 ```
+
+## Phase 6: Full Automation (Benchmark, Email, and Shutdown)
+For maximum efficiency, you can automate the entire workflow so that the instance runs the tests, emails you the results, and shuts itself down immediately.
+
+### 1. Create a Vast.ai Template
+In the [Vast.ai Console](https://vast.ai/console/templates/), create a new template with:
+- **Image:** `vllm/vllm-openai:v0.4.0` (or your preferred engine).
+- **Docker Options:** `-v ~/.cache/huggingface:/root/.cache/huggingface -p 8000:8000 --gpus all`.
+- **On-start Script:**
+  ```bash
+  # Start vLLM in the background
+  python3 -m vllm.entrypoints.openai.api_server \
+          --model google/gemma-2-9b-it \
+          --max-model-len 512 \
+          --block-size 16 \
+          --dtype float \
+          --enforce-eager > vllm.log 2>&1 &
+
+  # Clone and setup benchmarking tools
+  git clone <repo-url> /root/avast-ai-tests
+  cd /root/avast-ai-tests
+  pip install -r requirements.txt
+
+  # Run the orchestrator with email and auto-shutdown
+  # Ensure all necessary environment variables are set in the template
+  python3 orchestrator.py --url http://localhost:8000 \
+                          --model "gemma-2-9b-it" \
+                          --gpu "RTX 4090" \
+                          --run \
+                          --email "your-email@example.com" \
+                          --shutdown
+  ```
+
+### 2. Required Environment Variables
+Add these to your template's "Environment Variables" section:
+- `HF_TOKEN`: Your Hugging Face token.
+- `VAST_API_KEY`: Your Vast.ai API key (required for auto-shutdown).
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`: For email notifications.
+
+### 3. Benefits of this Workflow
+- **No Manual Intervention:** Just click "Rent" and wait for the email.
+- **Zero Waste:** The instance is destroyed the second the benchmark is finished.
+- **Reproducibility:** The template ensures every test runs in an identical environment.

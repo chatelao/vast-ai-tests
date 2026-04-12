@@ -47,6 +47,24 @@ class VastManager:
         print(f"Destroying instance {instance_id}...")
         return self.sdk.destroy_instance(id=instance_id)
 
+    def get_current_instance_id(self):
+        """Identifies the current Vast.ai instance ID by matching its public IP."""
+        try:
+            import urllib.request
+            # Get public IP of the current machine
+            public_ip = urllib.request.urlopen('https://api.ipify.org').read().decode('utf8')
+            print(f"Detected public IP: {public_ip}")
+
+            instances = self.sdk.show_instances()
+            # Find instance that matches this public IP
+            for inst in instances:
+                if inst.get('public_ipaddr') == public_ip or inst.get('ssh_host') == public_ip:
+                    print(f"Matched with instance ID: {inst['id']}")
+                    return inst['id']
+        except Exception as e:
+            print(f"Error detecting current instance ID: {e}")
+        return None
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Vast.ai Instance Manager")
     parser.add_argument("--search", type=str, help="Search for GPUs by name")
