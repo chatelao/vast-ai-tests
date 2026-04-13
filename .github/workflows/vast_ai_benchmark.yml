@@ -1,0 +1,65 @@
+name: Vast.ai LLM Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      gpu:
+        description: 'GPU model to test'
+        required: true
+        default: 'RTX_4090'
+      model:
+        description: 'LLM model name (e.g., google/gemma-2-9b-it)'
+        required: true
+        default: 'google/gemma-2-9b-it'
+      concurrency_levels:
+        description: 'Space-separated concurrency levels'
+        required: true
+        default: '1 4 16'
+      requests_per_level:
+        description: 'Number of requests per concurrency level'
+        required: true
+        default: '10'
+      template_hash:
+        description: 'Vast.ai template hash (optional)'
+        required: false
+      prompt:
+        description: 'Benchmark prompt'
+        required: true
+        default: 'Explain quantum physics in one sentence.'
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run Orchestrator
+      env:
+        VAST_AI_API_KEY: ${{ secrets.VAST_AI_API_KEY }}
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      run: |
+        # Convert space-separated concurrency levels to what orchestrator expects (it uses nargs="+")
+        python orchestrator.py \
+          --gpu "${{ github.event.inputs.gpu }}" \
+          --model "${{ github.event.inputs.model }}" \
+          --concurrency-levels ${{ github.event.inputs.concurrency_levels }} \
+          --requests-per-level ${{ github.event.inputs.requests_per_level }} \
+          ${{ github.event.inputs.template_hash && format('--template-hash {0}', github.event.inputs.template_hash) || '' }} \
+          --prompt "${{ github.event.inputs.prompt }}" \
+          --run
+
+    - name: Upload results
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: benchmark_*.json
