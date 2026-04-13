@@ -2,6 +2,7 @@ import argparse
 import time
 import sys
 import os
+import requests
 from vastai.sdk import VastAI
 
 class VastManager:
@@ -11,8 +12,15 @@ class VastManager:
 
     def find_offers(self, gpu_name, num_gpus=1):
         query = f"gpu_name={gpu_name} num_gpus={num_gpus} rentable=True verified=True"
-        offers = self.sdk.search_offers(query=query, order="dph_total")
-        return offers
+        try:
+            offers = self.sdk.search_offers(query=query, order="dph_total")
+            return offers
+        except requests.exceptions.HTTPError as e:
+            print(f"Error searching offers: {e}")
+            return []
+        except Exception as e:
+            print(f"Unexpected error searching offers: {e}")
+            return []
 
     def rent_instance(self, offer_id, image="nvidia/cuda:12.1.1-devel-ubuntu22.04", disk=50, template_hash=None, env=None):
         if template_hash:
@@ -20,7 +28,16 @@ class VastManager:
             image = None
         else:
             print(f"Attempting to rent offer {offer_id} with image {image}...")
-        result = self.sdk.create_instance(id=offer_id, image=image, disk=disk, template_hash=template_hash, env=env)
+
+        try:
+            result = self.sdk.create_instance(id=offer_id, image=image, disk=disk, template_hash=template_hash, env=env)
+        except requests.exceptions.HTTPError as e:
+            print(f"Error renting instance: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected error renting instance: {e}")
+            return None
+
         if result.get("success"):
             instance_id = result.get("new_contract")
             print(f"Successfully created instance {instance_id}")
@@ -33,7 +50,15 @@ class VastManager:
         print(f"Waiting for instance {instance_id} to be ready...")
         start_time = time.time()
         while time.time() - start_time < timeout:
-            instances = self.sdk.show_instances()
+            try:
+                instances = self.sdk.show_instances()
+            except requests.exceptions.HTTPError as e:
+                print(f"Error fetching instances: {e}")
+                return None
+            except Exception as e:
+                print(f"Unexpected error fetching instances: {e}")
+                return None
+
             instance = next((i for i in instances if i['id'] == instance_id), None)
 
             if instance:
@@ -48,7 +73,14 @@ class VastManager:
 
     def destroy_instance(self, instance_id):
         print(f"Destroying instance {instance_id}...")
-        return self.sdk.destroy_instance(id=instance_id)
+        try:
+            return self.sdk.destroy_instance(id=instance_id)
+        except requests.exceptions.HTTPError as e:
+            print(f"Error destroying instance {instance_id}: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected error destroying instance {instance_id}: {e}")
+            return None
 
     def get_current_instance_id(self):
         """Identifies the current Vast.ai instance ID by matching its public IP."""

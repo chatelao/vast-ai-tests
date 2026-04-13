@@ -71,8 +71,9 @@ class Orchestrator:
             # 1. Find and rent instance
             offers = self.vast.find_offers(gpu_name)
             if not offers:
-                print(f"No offers found for {gpu_name}")
-                return
+                print(f"No offers found for {gpu_name} (or API error occurred)")
+                # Force exit with error code if we can't find offers and were supposed to run
+                raise RuntimeError(f"Could not find any offers for {gpu_name}")
 
             if template_hash == "7e24e4e5c2e551d012344a9bf4f141c2":
                 vllm_args = "--api-key vllm-benchmark-token --max-model-len 512 --block-size 16 --dtype float --enforce-eager"
@@ -83,7 +84,7 @@ class Orchestrator:
             offer_id = offers[0]['id']
             instance_id = self.vast.rent_instance(offer_id, template_hash=template_hash, env=env_vars)
             if not instance_id:
-                return
+                raise RuntimeError(f"Failed to rent instance using offer {offer_id}")
 
             # Persist instance ID for external cleanup (e.g., GitHub Actions cancellation)
             with open(".vast_instance_id", "w") as f:
@@ -94,8 +95,7 @@ class Orchestrator:
                 # 2. Wait for instance to be ready
                 instance = self.vast.wait_for_ssh(instance_id)
                 if not instance:
-                    print("Instance failed to initialize")
-                    return
+                    raise RuntimeError(f"Instance {instance_id} failed to initialize or become reachable")
 
                 # Determine API URL, prioritizing mapped port 8000
                 ports = instance.get('ports', {})
@@ -119,8 +119,7 @@ class Orchestrator:
 
             # 2.5 Wait for API to be ready
             if not await self.wait_for_api_ready(api_url, timeout=wait_timeout):
-                print("Exiting as API never became ready.")
-                return
+                raise RuntimeError(f"LLM API at {api_url} never became ready within {wait_timeout} seconds")
 
             # 3. Run benchmarks
             api_key = vllm_api_key if template_hash == "7e24e4e5c2e551d012344a9bf4f141c2" else None
@@ -208,18 +207,23 @@ if __name__ == "__main__":
                 }
             }
 
-        asyncio.run(orch.run_suite(
-            args.gpu,
-            args.model,
-            url=args.url,
-            concurrency_levels=args.concurrency_levels,
-            requests_per_level=args.requests_per_level,
-            wait_timeout=args.wait_timeout,
-            prompt=args.prompt,
-            email_config=email_config,
-            shutdown_at_exit=args.shutdown,
-            template_hash=args.template_hash
-        ))
+        try:
+            asyncio.run(orch.run_suite(
+                args.gpu,
+                args.model,
+                url=args.url,
+                concurrency_levels=args.concurrency_levels,
+                requests_per_level=args.requests_per_level,
+                wait_timeout=args.wait_timeout,
+                prompt=args.prompt,
+                email_config=email_config,
+                shutdown_at_exit=args.shutdown,
+                template_hash=args.template_hash
+            ))
+        except Exception as e:
+            print(f"Error during benchmark run: {e}")
+            import sys
+            sys.exit(1)
     else:
         print("Orchestrator initialized.")
         print(f"Dry-run: Would test {args.model} on {args.gpu}")
