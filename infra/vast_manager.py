@@ -14,12 +14,13 @@ class VastManager:
         offers = self.sdk.search_offers(query=query, order="dph_total")
         return offers
 
-    def rent_instance(self, offer_id, image="nvidia/cuda:12.1.1-devel-ubuntu22.04", disk=50, template_hash=None):
+    def rent_instance(self, offer_id, image="nvidia/cuda:12.1.1-devel-ubuntu22.04", disk=50, template_hash=None, env=None):
         if template_hash:
             print(f"Attempting to rent offer {offer_id} using template {template_hash}...")
+            image = None
         else:
             print(f"Attempting to rent offer {offer_id} with image {image}...")
-        result = self.sdk.create_instance(id=offer_id, image=image, disk=disk, template_hash=template_hash)
+        result = self.sdk.create_instance(id=offer_id, image=image, disk=disk, template_hash=template_hash, env=env)
         if result.get("success"):
             instance_id = result.get("new_contract")
             print(f"Successfully created instance {instance_id}")

@@ -61,6 +61,9 @@ class Orchestrator:
         print(f"Starting benchmark suite for {model_name} on {gpu_name}")
 
         instance_id = None
+        env_vars = None
+        vllm_api_key = "vllm-benchmark-token"
+
         if url:
             api_url = url
             print(f"Using existing endpoint: {api_url}")
@@ -71,9 +74,14 @@ class Orchestrator:
                 print(f"No offers found for {gpu_name}")
                 return
 
+            if template_hash == "7e24e4e5c2e551d012344a9bf4f141c2":
+                vllm_args = "--api-key vllm-benchmark-token --max-model-len 512 --block-size 16 --dtype float --enforce-eager"
+                hf_token = os.getenv("HF_TOKEN", "")
+                env_vars = f"-e VLLM_MODEL={model_name} -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={vllm_api_key} -p 8000:18000"
+
             # Select the best offer (lowest price per hour)
             offer_id = offers[0]['id']
-            instance_id = self.vast.rent_instance(offer_id, template_hash=template_hash)
+            instance_id = self.vast.rent_instance(offer_id, template_hash=template_hash, env=env_vars)
             if not instance_id:
                 return
 
@@ -115,7 +123,8 @@ class Orchestrator:
                 return
 
             # 3. Run benchmarks
-            tester = LoadTester(api_url, model_name)
+            api_key = vllm_api_key if template_hash == "7e24e4e5c2e551d012344a9bf4f141c2" else None
+            tester = LoadTester(api_url, model_name, api_key=api_key)
 
             all_results = []
             for c in concurrency_levels:
@@ -164,14 +173,14 @@ class Orchestrator:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Gemma Performance Lab Orchestrator")
     parser.add_argument("--gpu", type=str, default="RTX_4090", help="GPU model to test")
-    parser.add_argument("--model", type=str, default="gemma-7b", help="Model name")
+    parser.add_argument("--model", type=str, default="google/gemma-2-9b-it", help="Model name")
     parser.add_argument("--url", type=str, help="Existing API endpoint URL (skips provisioning)")
     parser.add_argument("--run", action="store_true", help="Actually run the suite (requires Vast.ai credits)")
     parser.add_argument("--concurrency-levels", type=int, nargs="+", default=[1, 4, 16], help="Concurrency levels to test")
     parser.add_argument("--requests-per-level", type=int, default=10, help="Number of requests per concurrency level")
     parser.add_argument("--wait-timeout", type=int, default=600, help="Timeout in seconds to wait for API to be ready")
     parser.add_argument("--prompt", type=str, default="Explain quantum physics in one sentence.", help="Prompt to use for benchmarking")
-    parser.add_argument("--template-hash", type=str, default="38b2b68cf896e8582dff6f305a2041b1", help="Vast.ai template hash to use for provisioning")
+    parser.add_argument("--template-hash", type=str, default="7e24e4e5c2e551d012344a9bf4f141c2", help="Vast.ai template hash to use for provisioning")
 
     # Email arguments
     parser.add_argument("--email", type=str, help="Recipient email address for results")

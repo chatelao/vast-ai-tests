@@ -51,7 +51,44 @@ class TestTemplateLogic(unittest.TestCase):
             ))
 
             # Verify rent_instance was called with template_hash
-            mock_vast.rent_instance.assert_called_with(123, template_hash="my_template_hash")
+            mock_vast.rent_instance.assert_called_with(123, template_hash="my_template_hash", env=None)
+
+    @patch("orchestrator.VastManager")
+    def test_new_template_env_passing(self, MockVastManager):
+        mock_vast = MockVastManager.return_value
+        mock_vast.find_offers.return_value = [{"id": 123}]
+        mock_vast.rent_instance.return_value = "inst_1"
+        mock_vast.wait_for_ssh.return_value = {
+            "ssh_host": "1.2.3.4",
+            "ssh_port": 2222,
+            "ports": {"8000/tcp": [{"DirectAddress": "mapped.host:32768"}]}
+        }
+
+        async def mock_wait(*args, **kwargs):
+            return True
+        self.orchestrator.wait_for_api_ready = mock_wait
+
+        with patch("orchestrator.LoadTester") as MockLoadTester:
+            mock_tester = MockLoadTester.return_value
+            async def mock_run_bench(*args, **kwargs):
+                return {"total_tps": 10.0}
+            mock_tester.run_benchmark = mock_run_bench
+
+            with patch.dict(os.environ, {"HF_TOKEN": "test_hf_token"}):
+                asyncio.run(self.orchestrator.run_suite(
+                    gpu_name="RTX_4090",
+                    model_name="gemma-test",
+                    template_hash="7e24e4e5c2e551d012344a9bf4f141c2",
+                    concurrency_levels=[1],
+                    requests_per_level=1
+                ))
+
+            # Verify rent_instance was called with the correct env string
+            expected_env = "-e VLLM_MODEL=gemma-test -e VLLM_ARGS='--api-key vllm-benchmark-token --max-model-len 512 --block-size 16 --dtype float --enforce-eager' -e HF_TOKEN=test_hf_token -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 8000:18000"
+            mock_vast.rent_instance.assert_called_with(123, template_hash="7e24e4e5c2e551d012344a9bf4f141c2", env=expected_env)
+
+            # Verify LoadTester was initialized with the API key
+            MockLoadTester.assert_called_with("http://mapped.host:32768", "gemma-test", api_key="vllm-benchmark-token")
 
     @patch("orchestrator.VastManager")
     def test_api_url_construction_with_mapped_port(self, MockVastManager):
@@ -86,7 +123,7 @@ class TestTemplateLogic(unittest.TestCase):
             ))
 
             # Check if LoadTester was initialized with the mapped URL
-            MockLoadTester.assert_called_with("http://mapped.host:32768", "gemma")
+            MockLoadTester.assert_called_with("http://mapped.host:32768", "gemma", api_key=None)
 
     @patch("orchestrator.VastManager")
     def test_api_url_construction_fallback(self, MockVastManager):
@@ -119,7 +156,7 @@ class TestTemplateLogic(unittest.TestCase):
             ))
 
             # Check if LoadTester was initialized with the SSH URL fallback
-            MockLoadTester.assert_called_with("http://1.2.3.4:2222", "gemma")
+            MockLoadTester.assert_called_with("http://1.2.3.4:2222", "gemma", api_key=None)
 
 if __name__ == "__main__":
     unittest.main()

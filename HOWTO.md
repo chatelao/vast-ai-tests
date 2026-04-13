@@ -76,10 +76,17 @@ Using a **Vast.ai Template** (configured via the Web Console) is significantly f
 
 To use a template with our tools, find your template's **Hash ID** in the Vast.ai console and pass it to the orchestrator (if supported) or use it in `vast_manager.py`.
 
-Our recommended template hash is `38b2b68cf896e8582dff6f305a2041b1`, which comes with **vLLM preinstalled and ready to go**.
+Our recommended template hash is `7e24e4e5c2e551d012344a9bf4f141c2`, which provides a highly optimized **vLLM Inference Engine**.
+
+### Environment-Based Configuration
+This template is configured entirely via environment variables, which our orchestrator handles automatically:
+- `VLLM_MODEL`: The Hugging Face model path.
+- `VLLM_ARGS`: Optimization flags like `--max-model-len 512`.
+- `HF_TOKEN`: Your Hugging Face token for gated models.
+- `OPEN_BUTTON_TOKEN`: Sets the API key for the vLLM server.
 
 ```python
-mgr.rent_instance(offer_id, template_hash="38b2b68cf896e8582dff6f305a2041b1")
+mgr.rent_instance(offer_id, template_hash="7e24e4e5c2e551d012344a9bf4f141c2", env="-e VLLM_MODEL=google/gemma-2-9b-it ...")
 ```
 
 ## Phase 6: Full Automation (Benchmark, Email, and Shutdown)

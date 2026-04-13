@@ -30,7 +30,7 @@ on:
       template_hash:
         description: 'Vast.ai template hash (optional)'
         required: false
-        default: '38b2b68cf896e8582dff6f305a2041b1'
+        default: '7e24e4e5c2e551d012344a9bf4f141c2'
       prompt:
         description: 'Benchmark prompt'
         required: true

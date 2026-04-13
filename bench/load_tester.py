@@ -6,12 +6,19 @@ import argparse
 import statistics
 
 class LoadTester:
-    def __init__(self, base_url, model_name):
+    def __init__(self, base_url, model_name, api_key=None):
         self.base_url = base_url.rstrip('/')
         self.model_name = model_name
+        self.api_key = api_key
 
     async def send_request(self, session, prompt, max_tokens=100):
         url = f"{self.base_url}/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json"
+        }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
         payload = {
             "model": self.model_name,
             "messages": [{"role": "user", "content": prompt}],
@@ -25,7 +32,7 @@ class LoadTester:
         chunk_times = []
 
         try:
-            async with session.post(url, json=payload) as response:
+            async with session.post(url, json=payload, headers=headers) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     print(f"Request failed with status {response.status}: {error_text}")
@@ -96,9 +103,10 @@ if __name__ == "__main__":
     parser.add_argument("--concurrency", type=int, default=1, help="Number of concurrent users")
     parser.add_argument("--requests", type=int, default=10, help="Total number of requests")
     parser.add_argument("--prompt", type=str, default="Explain quantum physics in one sentence.", help="Prompt to use for benchmarking")
+    parser.add_argument("--api-key", type=str, help="API key for authentication")
 
     args = parser.parse_args()
 
-    tester = LoadTester(args.url, args.model)
+    tester = LoadTester(args.url, args.model, api_key=args.api_key)
     summary = asyncio.run(tester.run_benchmark(args.concurrency, args.requests, prompt=args.prompt))
     print(json.dumps(summary, indent=2))
