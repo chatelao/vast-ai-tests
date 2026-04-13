@@ -11,7 +11,7 @@ from bench.load_tester import LoadTester
 
 class Orchestrator:
     def __init__(self, api_key=None):
-        self.api_key = api_key
+        self.api_key = api_key or os.getenv("VAST_AI_API_KEY")
         self._vast = None
 
     @property
@@ -57,7 +57,7 @@ class Orchestrator:
         except Exception as e:
             print(f"Failed to send email: {e}")
 
-    async def run_suite(self, gpu_name, model_name, url=None, concurrency_levels=[1, 4, 16], requests_per_level=10, wait_timeout=600, prompt="Explain quantum physics in one sentence.", email_config=None, shutdown_at_exit=False):
+    async def run_suite(self, gpu_name, model_name, url=None, concurrency_levels=[1, 4, 16], requests_per_level=10, wait_timeout=600, prompt="Explain quantum physics in one sentence.", email_config=None, shutdown_at_exit=False, template_hash=None):
         print(f"Starting benchmark suite for {model_name} on {gpu_name}")
 
         instance_id = None
@@ -73,7 +73,7 @@ class Orchestrator:
 
             # Select the best offer (lowest price per hour)
             offer_id = offers[0]['id']
-            instance_id = self.vast.rent_instance(offer_id)
+            instance_id = self.vast.rent_instance(offer_id, template_hash=template_hash)
             if not instance_id:
                 return
 
@@ -85,8 +85,14 @@ class Orchestrator:
                     print("Instance failed to initialize")
                     return
 
-                print(f"Instance ready at {instance['ssh_host']}:{instance['ssh_port']}")
-                api_url = f"http://{instance['ssh_host']}:{instance['ssh_port']}"
+                # Determine API URL, prioritizing mapped port 8000
+                ports = instance.get('ports', {})
+                if '8000/tcp' in ports:
+                    api_url = f"http://{ports['8000/tcp'][0]['DirectAddress']}"
+                else:
+                    api_url = f"http://{instance['ssh_host']}:{instance['ssh_port']}"
+
+                print(f"Instance ready at {api_url}")
 
                 # Implementation Note: In a production environment, this step would involve
                 # using an SSH library (like Paramiko) to run 'docker run' on the remote host.
@@ -156,6 +162,7 @@ if __name__ == "__main__":
     parser.add_argument("--requests-per-level", type=int, default=10, help="Number of requests per concurrency level")
     parser.add_argument("--wait-timeout", type=int, default=600, help="Timeout in seconds to wait for API to be ready")
     parser.add_argument("--prompt", type=str, default="Explain quantum physics in one sentence.", help="Prompt to use for benchmarking")
+    parser.add_argument("--template-hash", type=str, help="Vast.ai template hash to use for provisioning")
 
     # Email arguments
     parser.add_argument("--email", type=str, help="Recipient email address for results")
@@ -192,7 +199,8 @@ if __name__ == "__main__":
             wait_timeout=args.wait_timeout,
             prompt=args.prompt,
             email_config=email_config,
-            shutdown_at_exit=args.shutdown
+            shutdown_at_exit=args.shutdown,
+            template_hash=args.template_hash
         ))
     else:
         print("Orchestrator initialized.")
