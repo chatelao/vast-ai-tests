@@ -4,6 +4,7 @@ import sys
 import os
 import requests
 from vastai.sdk import VastAI
+from vastai.utils import parse_env
 
 class VastManager:
     def __init__(self, api_key=None):
@@ -17,6 +18,8 @@ class VastManager:
             return offers
         except requests.exceptions.HTTPError as e:
             print(f"Error searching offers: {e}")
+            if e.response is not None:
+                print(f"Response: {e.response.text}")
             return []
         except Exception as e:
             print(f"Unexpected error searching offers: {e}")
@@ -29,10 +32,16 @@ class VastManager:
         else:
             print(f"Attempting to rent offer {offer_id} with image {image}...")
 
+        # If env is a string, parse it into a dictionary as expected by the SDK/API
+        if isinstance(env, str):
+            env = parse_env(env)
+
         try:
             result = self.sdk.create_instance(id=offer_id, image=image, disk=disk, template_hash=template_hash, env=env)
         except requests.exceptions.HTTPError as e:
             print(f"Error renting instance: {e}")
+            if e.response is not None:
+                print(f"Response: {e.response.text}")
             return None
         except Exception as e:
             print(f"Unexpected error renting instance: {e}")
@@ -54,6 +63,8 @@ class VastManager:
                 instances = self.sdk.show_instances()
             except requests.exceptions.HTTPError as e:
                 print(f"Error fetching instances: {e}")
+                if e.response is not None:
+                    print(f"Response: {e.response.text}")
                 return None
             except Exception as e:
                 print(f"Unexpected error fetching instances: {e}")
@@ -77,6 +88,8 @@ class VastManager:
             return self.sdk.destroy_instance(id=instance_id)
         except requests.exceptions.HTTPError as e:
             print(f"Error destroying instance {instance_id}: {e}")
+            if e.response is not None:
+                print(f"Response: {e.response.text}")
             return None
         except Exception as e:
             print(f"Unexpected error destroying instance {instance_id}: {e}")
