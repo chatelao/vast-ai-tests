@@ -75,10 +75,12 @@ class Orchestrator:
                 # Force exit with error code if we can't find offers and were supposed to run
                 raise RuntimeError(f"Could not find any offers for {gpu_name}")
 
-            if template_hash == "7e24e4e5c2e551d012344a9bf4f141c2":
-                vllm_args = "--api-key vllm-benchmark-token --max-model-len 512 --block-size 16 --dtype float --enforce-eager"
-                hf_token = os.getenv("HF_TOKEN", "")
-                env_vars = f"-e VLLM_MODEL={model_name} -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={vllm_api_key} -p 8000:18000"
+            # if template_hash == "7e24e4e5c2e551d012344a9bf4f141c2":
+            # vllm_args = "--api-key vllm-benchmark-token --max-model-len 512 --block-size 16 --dtype float --enforce-eager"
+            # env_vars = f"-e VLLM_MODEL={model_name} -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={vllm_api_key} -p 8000:18000"
+
+            hf_token = os.getenv("HF_TOKEN", "")
+            env_vars = f"-e VLLM_MODEL={model_name} -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={vllm_api_key} -p 8000:18000"
 
             # Select the best offer (lowest price per hour)
             offer_id = offers[0]['id']
