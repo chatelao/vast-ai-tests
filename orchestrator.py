@@ -77,6 +77,10 @@ class Orchestrator:
             if not instance_id:
                 return
 
+            # Persist instance ID for external cleanup (e.g., GitHub Actions cancellation)
+            with open(".vast_instance_id", "w") as f:
+                f.write(str(instance_id))
+
         try:
             if not url:
                 # 2. Wait for instance to be ready
@@ -143,6 +147,8 @@ class Orchestrator:
             # 5. Teardown
             if instance_id:
                 self.vast.destroy_instance(instance_id)
+                if os.path.exists(".vast_instance_id"):
+                    os.remove(".vast_instance_id")
             elif shutdown_at_exit:
                 # If we are running on the instance itself, try to self-destruct
                 print("Shutdown requested. Attempting to identify current instance ID...")

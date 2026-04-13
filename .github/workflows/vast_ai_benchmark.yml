@@ -60,6 +60,20 @@ jobs:
 
     - name: Upload results
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: benchmark-results
         path: benchmark_*.json
+
+    - name: Cleanup Vast.ai Instance
+      if: always()
+      env:
+        VAST_AI_API_KEY: ${{ secrets.VAST_AI_API_KEY }}
+      run: |
+        if [ -f .vast_instance_id ]; then
+          INSTANCE_ID=$(cat .vast_instance_id)
+          echo "Cleanup: Destroying instance $INSTANCE_ID"
+          python infra/vast_manager.py --destroy $INSTANCE_ID
+        else
+          echo "No .vast_instance_id found, skipping cleanup."
+        fi

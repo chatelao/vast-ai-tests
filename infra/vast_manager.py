@@ -1,11 +1,13 @@
 import argparse
 import time
 import sys
+import os
 from vastai.sdk import VastAI
 
 class VastManager:
     def __init__(self, api_key=None):
-        self.sdk = VastAI(api_key=api_key)
+        self.api_key = api_key or os.getenv("VAST_AI_API_KEY")
+        self.sdk = VastAI(api_key=self.api_key)
 
     def find_offers(self, gpu_name, num_gpus=1):
         query = f"gpu_name={gpu_name} num_gpus={num_gpus} rentable=True verified=True"
