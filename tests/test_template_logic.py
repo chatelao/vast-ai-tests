@@ -37,8 +37,14 @@ class TestTemplateLogic(unittest.TestCase):
         with patch("orchestrator.LoadTester") as MockLoadTester:
             mock_tester = MockLoadTester.return_value
 
-            async def mock_run_bench(*args, **kwargs):
-                return {"total_tps": 10.0}
+            async def mock_run_bench(concurrency, *args, **kwargs):
+                return {
+                    "concurrency": concurrency,
+                    "avg_ttft": 0.1,
+                    "avg_itl": 0.05,
+                    "avg_tps": 20.0,
+                    "total_tps": 10.0
+                }
 
             mock_tester.run_benchmark = mock_run_bench
 
@@ -51,7 +57,8 @@ class TestTemplateLogic(unittest.TestCase):
             ))
 
             # Verify rent_instance was called with template_hash
-            mock_vast.rent_instance.assert_called_with(123, template_hash="my_template_hash", env=None)
+            expected_env = "-e VLLM_MODEL=gemma -e HF_TOKEN= -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 8000:18000"
+            mock_vast.rent_instance.assert_called_with(123, template_hash="my_template_hash", env=expected_env)
 
     @patch("orchestrator.VastManager")
     def test_new_template_env_passing(self, MockVastManager):
@@ -70,8 +77,14 @@ class TestTemplateLogic(unittest.TestCase):
 
         with patch("orchestrator.LoadTester") as MockLoadTester:
             mock_tester = MockLoadTester.return_value
-            async def mock_run_bench(*args, **kwargs):
-                return {"total_tps": 10.0}
+            async def mock_run_bench(concurrency, *args, **kwargs):
+                return {
+                    "concurrency": concurrency,
+                    "avg_ttft": 0.1,
+                    "avg_itl": 0.05,
+                    "avg_tps": 20.0,
+                    "total_tps": 10.0
+                }
             mock_tester.run_benchmark = mock_run_bench
 
             with patch.dict(os.environ, {"HF_TOKEN": "test_hf_token"}):
@@ -84,7 +97,7 @@ class TestTemplateLogic(unittest.TestCase):
                 ))
 
             # Verify rent_instance was called with the correct env string
-            expected_env = "-e VLLM_MODEL=gemma-test -e VLLM_ARGS='--api-key vllm-benchmark-token --max-model-len 512 --block-size 16 --dtype float --enforce-eager' -e HF_TOKEN=test_hf_token -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 8000:18000"
+            expected_env = "-e VLLM_MODEL=gemma-test -e HF_TOKEN=test_hf_token -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 8000:18000"
             mock_vast.rent_instance.assert_called_with(123, template_hash="7e24e4e5c2e551d012344a9bf4f141c2", env=expected_env)
 
             # Verify LoadTester was initialized with the API key
