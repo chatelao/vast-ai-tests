@@ -95,6 +95,29 @@ class VastManager:
             print(f"Unexpected error destroying instance {instance_id}: {e}")
             return None
 
+    def get_instance_details(self, instance_id):
+        """Fetch current details for a specific instance using the REST API."""
+        url = f"https://console.vast.ai/api/v0/instances/{instance_id}/"
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+            # The API might return {"instances": [...]}, {"instance": {...}}, or just the instance object
+            if isinstance(data, dict):
+                if "instances" in data:
+                    instances = data["instances"]
+                    if isinstance(instances, list):
+                        return next((i for i in instances if str(i.get('id')) == str(instance_id)), None)
+                    return instances
+                if "instance" in data:
+                    return data["instance"]
+            return data
+        except Exception as e:
+            print(f"Error fetching instance details for {instance_id}: {e}")
+            return None
+
     def get_current_instance_id(self):
         """Identifies the current Vast.ai instance ID by matching its public IP."""
         try:
