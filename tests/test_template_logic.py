@@ -83,6 +83,13 @@ class TestTemplateLogic(unittest.TestCase):
         async def mock_wait(*args, **kwargs):
             return True
         self.orchestrator.wait_for_api_ready = mock_wait
+        # Mock get_instance_details to return a realistic response with external port
+        mock_vast.get_instance_details.return_value = {
+            "public_ipaddr": "1.2.3.4",
+            "ports": {
+                "8000/tcp": [{"HostPort": 8888}]
+            }
+        }
 
         with patch("orchestrator.LoadTester") as MockLoadTester:
             mock_tester = MockLoadTester.return_value
@@ -97,7 +104,8 @@ class TestTemplateLogic(unittest.TestCase):
                 requests_per_level=1
             ))
 
-            MockLoadTester.assert_called_with("http://1.2.3.4:8000", "gemma-test", api_key="vllm-benchmark-token")
+            # Verify LoadTester was initialized with the API key and the correctly resolved URL from get_instance_details
+            MockLoadTester.assert_called_with("http://1.2.3.4:8888", "gemma-test", api_key="vllm-benchmark-token")
 
     @patch("orchestrator.VastManager")
     @patch("orchestrator.time.sleep")
@@ -117,6 +125,13 @@ class TestTemplateLogic(unittest.TestCase):
         async def mock_wait(*args, **kwargs):
             return True
         self.orchestrator.wait_for_api_ready = mock_wait
+        # Mock get_instance_details to return a realistic response with external port
+        mock_vast.get_instance_details.return_value = {
+            "public_ipaddr": "1.2.3.4",
+            "ports": {
+                "8000/tcp": [{"HostPort": 12345}]
+            }
+        }
 
         with patch("orchestrator.LoadTester") as MockLoadTester:
             mock_tester = MockLoadTester.return_value

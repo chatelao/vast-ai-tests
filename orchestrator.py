@@ -156,18 +156,23 @@ class Orchestrator:
             if not instance:
                 raise RuntimeError(f"Instance {instance_id} failed to initialize or become reachable")
 
-            host = instance.get('public_ipaddr', instance.get('ssh_host'))
+            # 3. Refresh instance details to get mapped ports from the API
+            details = self.vast.get_instance_details(instance_id) or instance
+            host = details.get('public_ipaddr', details.get('ssh_host'))
             port = 8000
-            ports = instance.get('ports', {})
-            for port_key, mappings in ports.items():
-                if port_key.startswith('8000'):
-                    if isinstance(mappings, list) and len(mappings) > 0:
-                        mapping = mappings[0]
-                        if isinstance(mapping, dict):
-                            port = mapping.get('HostPort', port)
-                    elif isinstance(mappings, (str, int)):
-                        port = mappings
-                    break
+            ports = details.get('ports', {})
+            if isinstance(ports, dict):
+                for port_key, mappings in ports.items():
+                    if port_key.startswith('8000'):
+                        if isinstance(mappings, list) and len(mappings) > 0:
+                            mapping = mappings[0]
+                            if isinstance(mapping, dict):
+                                port = mapping.get('HostPort', port)
+                        elif isinstance(mappings, (str, int)):
+                            port = mappings
+                        break
+
+            self.log_notice(f"LLM External Port: {port}")
 
             api_url = f"http://{host}:{port}"
             with open(".vast_api_url", "w") as f:
