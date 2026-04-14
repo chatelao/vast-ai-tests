@@ -8,8 +8,10 @@ https://huggingface.co/google/gemma-2-9b-it
 docker run --gpus all \
            -v ~/.cache/huggingface:/root/.cache/huggingface \
            -e HF_TOKEN=<your_token> \
-           -p 8000:8000 vllm/vllm-openai:v0.4.0 \
+           -p 1111:11111 -p 7860:17860 -p 8000:18000 -p 8265:28265 -p 8080:18080 \
+           vllm/vllm-openai:v0.4.0 \
            --model google/gemma-2-9b-it \
+           --port 18000 \
            --max-model-len 512 \
            --block-size 16 \
            --dtype float \
