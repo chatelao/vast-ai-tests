@@ -65,18 +65,26 @@ class Orchestrator:
         except Exception as e:
             self.log_error(f"Failed to write step summary: {e}")
 
-    async def wait_for_api_ready(self, url, timeout=1200):
+    async def wait_for_api_ready(self, url, api_key=None, timeout=1200):
         print(f"Waiting for LLM API to be ready at {url}...")
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
         start_time = time.time()
         async with aiohttp.ClientSession() as session:
             while time.time() - start_time < timeout:
                 elapsed = int(time.time() - start_time)
                 try:
-                    async with session.get(f"{url}/v1/models") as response:
+                    async with session.get(f"{url}/v1/models", headers=headers) as response:
                         if response.status == 200:
                             print(f"API is ready after {elapsed}s!")
                             return True
-                except Exception:
+                        else:
+                            text = await response.text()
+                            print(f"  ...API returned {response.status}: {text[:100]}")
+                except Exception as e:
+                    # Generic error (e.g. connection refused) is expected during startup
                     pass
                 if elapsed % 30 == 0 and elapsed > 0:
                     print(f"  ...still waiting ({elapsed}s elapsed)")
@@ -162,7 +170,8 @@ class Orchestrator:
                     raise RuntimeError(f"Could not find any offers for {gpu_name}")
 
                 hf_token = os.getenv("HF_TOKEN", "")
-                env_vars = f"-e VLLM_MODEL={model_name} -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={vllm_api_key} -p 18000:18000"
+                vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16"
+                env_vars = f"-e VLLM_MODEL={model_name} -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={vllm_api_key} -p 18000:18000"
 
                 # Select the best offer (lowest price per hour)
                 offer_id = offers[0]['id']
@@ -211,7 +220,7 @@ class Orchestrator:
                 print(f"URL: {api_url}")
 
                 # 2.5 Wait for API to be ready
-                if not await self.wait_for_api_ready(api_url, timeout=wait_timeout):
+                if not await self.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=wait_timeout):
                     raise RuntimeError(f"LLM API at {api_url} never became ready within {wait_timeout} seconds")
             finally:
                 self.log_group_end()
@@ -225,7 +234,7 @@ class Orchestrator:
                 self.log_group_start("Waiting for API")
                 try:
                     # 2.5 Wait for API to be ready
-                    if not await self.wait_for_api_ready(api_url, timeout=wait_timeout):
+                    if not await self.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=wait_timeout):
                         raise RuntimeError(f"LLM API at {api_url} never became ready within {wait_timeout} seconds")
                 finally:
                     self.log_group_end()
