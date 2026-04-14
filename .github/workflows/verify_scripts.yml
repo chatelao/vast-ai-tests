@@ -30,15 +30,14 @@ jobs:
         # Wait for mock server to be ready
         timeout 30 bash -c 'until curl -sf http://localhost:8000/v1/models; do sleep 1; done' || (echo "Mock server failed to start" && exit 1)
 
-    - name: Run Orchestrator against mock server
+    - name: Run benchmark against mock server
       run: |
-        python orchestrator.py \
+        python benchmark.py \
           --url http://localhost:8000 \
           --model tiny-model \
           --gpu mock-gpu \
           --concurrency-levels 1 2 \
-          --requests-per-level 5 \
-          --run
+          --requests-per-level 5
 
     - name: Check benchmark results
       run: |

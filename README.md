@@ -32,7 +32,10 @@ This framework automates the benchmarking of Gemma models (and other LLMs) acros
 - `CONCEPT.md`: Detailed architecture and objectives.
 - `infra/vast_manager.py`: Infrastructure management logic.
 - `bench/load_tester.py`: Load testing and metrics collection.
-- `orchestrator.py`: End-to-end automation script.
+- `orchestrator.py`: Core logic for provisioning and benchmarking.
+- `provision.py`: CLI for renting Vast.ai instances.
+- `benchmark.py`: CLI for running the benchmark suite.
+- `teardown.py`: CLI for destroying instances.
 - `requirements.txt`: Python dependencies.
 
 ## Getting Started
@@ -67,7 +70,9 @@ python3 bench/load_tester.py --url http://<instance-ip>:<port> --model gemma-2-9
 
 #### 3. Run the Full Orchestrator
 ```bash
-python3 orchestrator.py --gpu "RTX_4090" --model "gemma-2-9b"
+python3 provision.py --gpu "RTX_4090" --model "google/gemma-2-9b-it"
+python3 benchmark.py --gpu "RTX_4090" --model "google/gemma-2-9b-it"
+python3 teardown.py
 ```
 
 ## Metrics Defined
