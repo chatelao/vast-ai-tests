@@ -42,13 +42,15 @@ export HF_TOKEN=your_hf_token
 The orchestrator will provision an instance using the optimized vLLM template, run the benchmarks, and then destroy the instance.
 
 ```bash
-python3 orchestrator.py --gpu "RTX_4090" --model "google/gemma-2-9b-it" --run
+python3 provision.py --gpu "RTX_4090" --model "google/gemma-2-9b-it"
+python3 benchmark.py --gpu "RTX_4090" --model "google/gemma-2-9b-it"
+python3 teardown.py
 ```
 
-The orchestrator also supports granular execution modes, which are used by the GitHub Actions workflow:
-- `--provision`: Just rent the instance and wait for the API to be ready.
-- `--benchmark`: Run the benchmark suite against an already provisioned instance.
-- `--teardown`: Destroy the provisioned instance.
+The framework provides granular execution scripts, which are used by the GitHub Actions workflow:
+- `provision.py`: Rent the instance and wait for the API to be ready.
+- `benchmark.py`: Run the benchmark suite against an already provisioned instance.
+- `teardown.py`: Destroy the provisioned instance.
 
 ## Local Verification (No GPU required)
 

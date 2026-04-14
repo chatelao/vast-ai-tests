@@ -113,178 +113,161 @@ class Orchestrator:
         except Exception as e:
             print(f"Failed to send email: {e}")
 
-    async def run_suite(self, gpu_name, model_name, url=None, concurrency_levels=[1, 4, 16], requests_per_level=10, wait_timeout=1200, prompt="Explain quantum physics in one sentence.", email_config=None, template_hash="38b2b68cf896e8582dff6f305a2041b1", mode="all"):
-        print(f"Starting benchmark suite for {model_name} on {gpu_name} (Mode: {mode})")
-
-        instance_id = None
-        vllm_api_key = "vllm-benchmark-token"
-
-        # Load instance ID if it exists (for split-step execution)
+    def load_instance_id(self):
         if os.path.exists(".vast_instance_id"):
             with open(".vast_instance_id", "r") as f:
                 content = f.read().strip()
                 try:
-                    instance_id = int(content)
-                    print(f"Loaded existing instance ID: {instance_id}")
+                    return int(content)
                 except ValueError:
-                    # In tests we might use string IDs
-                    instance_id = content
-                    print(f"Loaded existing instance ID (string): {instance_id}")
+                    return content
+        return None
 
-        if mode == "teardown":
+    def load_api_url(self):
+        if os.path.exists(".vast_api_url"):
+            with open(".vast_api_url", "r") as f:
+                return f.read().strip()
+        return None
+
+    async def provision_instance(self, gpu_name, model_name, template_hash="38b2b68cf896e8582dff6f305a2041b1", wait_timeout=1200):
+        self.log_group_start("Instance Provisioning")
+        try:
+            # 1. Find and rent instance
+            offers = self.vast.find_offers(gpu_name)
+            if not offers:
+                self.log_error(f"No offers found for {gpu_name} (or API error occurred)")
+                raise RuntimeError(f"Could not find any offers for {gpu_name}")
+
+            vllm_api_key = "vllm-benchmark-token"
+            hf_token = os.getenv("HF_TOKEN", "")
+            vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16 --port 8000"
+            env_vars = f"-e VLLM_MODEL={model_name} -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={vllm_api_key} -p 1111:1111 -p 7860:7860 -p 8000:8000 -p 8265:8265 -p 8080:8080"
+
+            offer_id = offers[0]['id']
+            instance_id = self.vast.rent_instance(offer_id, template_hash=template_hash, env=env_vars)
             if not instance_id:
-                print("No instance ID found to teardown.")
-                return
-            self.log_group_start("Teardown")
+                raise RuntimeError(f"Failed to rent instance using offer {offer_id}")
+
+            with open(".vast_instance_id", "w") as f:
+                f.write(str(instance_id))
+
+            # 2. Wait for instance to be ready
+            instance = self.vast.wait_for_ssh(instance_id)
+            if not instance:
+                raise RuntimeError(f"Instance {instance_id} failed to initialize or become reachable")
+
+            host = instance.get('public_ipaddr', instance.get('ssh_host'))
+            port = 8000
+            ports = instance.get('ports', {})
+            for port_key, mappings in ports.items():
+                if port_key.startswith('8000'):
+                    if isinstance(mappings, list) and len(mappings) > 0:
+                        mapping = mappings[0]
+                        if isinstance(mapping, dict):
+                            port = mapping.get('HostPort', port)
+                    elif isinstance(mappings, (str, int)):
+                        port = mappings
+                    break
+
+            api_url = f"http://{host}:{port}"
+            with open(".vast_api_url", "w") as f:
+                f.write(api_url)
+
+            print(f"Instance ready at {api_url}")
+            print(f"Using template {template_hash}. Waiting for preinstalled vLLM to start...")
+
+            if not await self.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=wait_timeout):
+                raise RuntimeError(f"LLM API at {api_url} never became ready within {wait_timeout} seconds")
+
+            return api_url
+        finally:
+            self.log_group_end()
+
+    async def run_benchmark_suite(self, gpu_name, model_name, api_url, concurrency_levels=[1, 4, 16], requests_per_level=10, prompt="Explain quantum physics in one sentence.", email_config=None, wait_timeout=1200):
+        vllm_api_key = "vllm-benchmark-token"
+
+        self.log_group_start("Waiting for API")
+        try:
+            if not await self.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=wait_timeout):
+                raise RuntimeError(f"LLM API at {api_url} never became ready within {wait_timeout} seconds")
+        finally:
+            self.log_group_end()
+
+        tester = LoadTester(api_url, model_name, api_key=vllm_api_key)
+        all_results = []
+        for c in concurrency_levels:
+            self.log_group_start(f"Benchmark: Concurrency {c}")
             try:
-                self.vast.destroy_instance(instance_id)
-                if os.path.exists(".vast_instance_id"):
-                    os.remove(".vast_instance_id")
-                if os.path.exists(".vast_api_url"):
-                    os.remove(".vast_api_url")
+                print(f"Running benchmark with concurrency: {c}")
+                try:
+                    result = await tester.run_benchmark(c, requests_per_level, prompt=prompt)
+                    if result:
+                        result["gpu"] = gpu_name
+                        result["model"] = model_name
+                        all_results.append(result)
+                        print(f"Result: {result['total_tps']:.2f} tokens/s")
+                    else:
+                        print(f"Benchmark failed for concurrency {c} (Is the server running?)")
+                except Exception as e:
+                    self.log_error(f"Error during benchmark: {e}")
             finally:
                 self.log_group_end()
+
+        if all_results:
+            report_file = f"benchmark_{gpu_name.replace(' ', '_')}_{int(time.time())}.json"
+            with open(report_file, "w") as f:
+                json.dump(all_results, f, indent=2)
+            print(f"Suite complete. Results saved to {report_file}")
+            self.write_step_summary(all_results)
+            if email_config and email_config.get('to'):
+                self.send_email_report(all_results, email_config['to'], email_config['smtp'])
+        else:
+            print("No results collected.")
+
+        return all_results
+
+    def teardown_instance(self):
+        instance_id = self.load_instance_id()
+        if not instance_id:
+            print("No instance ID found to teardown.")
             return
 
-        if url:
-            api_url = url
-            print(f"Using existing endpoint: {api_url}")
-        elif mode == "benchmark":
+        self.log_group_start("Teardown")
+        try:
+            self.vast.destroy_instance(instance_id)
+            if os.path.exists(".vast_instance_id"):
+                os.remove(".vast_instance_id")
             if os.path.exists(".vast_api_url"):
-                with open(".vast_api_url", "r") as f:
-                    api_url = f.read().strip()
-                print(f"Loaded API URL from file: {api_url}")
+                os.remove(".vast_api_url")
+            print(f"Instance {instance_id} destroyed.")
+        finally:
+            self.log_group_end()
+
+    async def run_suite(self, gpu_name, model_name, url=None, concurrency_levels=[1, 4, 16], requests_per_level=10, wait_timeout=1200, prompt="Explain quantum physics in one sentence.", email_config=None, template_hash="38b2b68cf896e8582dff6f305a2041b1", mode="all"):
+        print(f"Starting benchmark suite for {model_name} on {gpu_name} (Mode: {mode})")
+
+        if mode == "teardown":
+            self.teardown_instance()
+            return
+
+        api_url = url
+        if not api_url:
+            if mode == "benchmark":
+                api_url = self.load_api_url()
+                if not api_url:
+                    raise ValueError("API URL (--url) or .vast_api_url file is required for benchmark mode")
             else:
-                raise ValueError("API URL (--url) or .vast_api_url file is required for benchmark mode")
-        else:
-            if not template_hash:
-                raise ValueError("template_hash is required when provisioning a new instance")
+                api_url = await self.provision_instance(gpu_name, model_name, template_hash, wait_timeout)
 
-            self.log_group_start("Instance Provisioning")
-            try:
-                # 1. Find and rent instance
-                offers = self.vast.find_offers(gpu_name)
-                if not offers:
-                    self.log_error(f"No offers found for {gpu_name} (or API error occurred)")
-                    # Force exit with error code if we can't find offers and were supposed to run
-                    raise RuntimeError(f"Could not find any offers for {gpu_name}")
-
-                hf_token = os.getenv("HF_TOKEN", "")
-                vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16 --port 8000"
-                env_vars = f"-e VLLM_MODEL={model_name} -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={vllm_api_key} -p 1111:1111 -p 7860:7860 -p 8000:8000 -p 8265:8265 -p 8080:8080"
-
-                # Select the best offer (lowest price per hour)
-                offer_id = offers[0]['id']
-                instance_id = self.vast.rent_instance(offer_id, template_hash=template_hash, env=env_vars)
-                if not instance_id:
-                    raise RuntimeError(f"Failed to rent instance using offer {offer_id}")
-
-                # Persist instance ID for external cleanup (e.g., GitHub Actions cancellation)
-                with open(".vast_instance_id", "w") as f:
-                    f.write(str(instance_id))
-
-                # 2. Wait for instance to be ready
-                instance = self.vast.wait_for_ssh(instance_id)
-                if not instance:
-                    raise RuntimeError(f"Instance {instance_id} failed to initialize or become reachable")
-
-                # Resolve external API URL using public IP and port mappings
-                host = instance.get('public_ipaddr', instance.get('ssh_host'))
-                port = 8000
-                ports = instance.get('ports', {})
-                for port_key, mappings in ports.items():
-                    if port_key.startswith('8000'):
-                        if isinstance(mappings, list) and len(mappings) > 0:
-                            # Handle standard SDK/Docker port mapping structure
-                            mapping = mappings[0]
-                            if isinstance(mapping, dict):
-                                port = mapping.get('HostPort', port)
-                        elif isinstance(mappings, (str, int)):
-                            # Handle potential simplified mapping
-                            port = mappings
-                        break
-
-                api_url = f"http://{host}:{port}"
-
-                with open(".vast_api_url", "w") as f:
-                    f.write(api_url)
-
-                print(f"Instance ready at {api_url}")
-                print(f"Using template {template_hash}. Waiting for preinstalled vLLM to start...")
-                print(f"URL: {api_url}")
-
-                # 2.5 Wait for API to be ready
-                if not await self.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=wait_timeout):
-                    raise RuntimeError(f"LLM API at {api_url} never became ready within {wait_timeout} seconds")
-            finally:
-                self.log_group_end()
-
-            if mode == "provision":
-                print("Provisioning complete. API is ready.")
-                return
+        if mode == "provision":
+            print("Provisioning complete. API is ready.")
+            return
 
         try:
-            if url or mode == "benchmark":
-                self.log_group_start("Waiting for API")
-                try:
-                    # 2.5 Wait for API to be ready
-                    if not await self.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=wait_timeout):
-                        raise RuntimeError(f"LLM API at {api_url} never became ready within {wait_timeout} seconds")
-                finally:
-                    self.log_group_end()
-
-            # 3. Run benchmarks
-            tester = LoadTester(api_url, model_name, api_key=vllm_api_key)
-
-            all_results = []
-            for c in concurrency_levels:
-                self.log_group_start(f"Benchmark: Concurrency {c}")
-                try:
-                    print(f"Running benchmark with concurrency: {c}")
-                    # We attempt to run the actual load tester
-                    try:
-                        result = await tester.run_benchmark(c, requests_per_level, prompt=prompt)
-                        if result:
-                            result["gpu"] = gpu_name
-                            result["model"] = model_name
-                            all_results.append(result)
-                            print(f"Result: {result['total_tps']:.2f} tokens/s")
-                        else:
-                            print(f"Benchmark failed for concurrency {c} (Is the server running?)")
-                    except Exception as e:
-                        self.log_error(f"Error during benchmark: {e}")
-                finally:
-                    self.log_group_end()
-
-            # 4. Save results
-            if all_results:
-                report_file = f"benchmark_{gpu_name.replace(' ', '_')}_{int(time.time())}.json"
-                with open(report_file, "w") as f:
-                    json.dump(all_results, f, indent=2)
-                print(f"Suite complete. Results saved to {report_file}")
-
-                # 4.2 Write GitHub Step Summary
-                self.write_step_summary(all_results)
-
-                # 4.5 Send email if configured
-                if email_config and email_config.get('to'):
-                    self.send_email_report(all_results, email_config['to'], email_config['smtp'])
-            else:
-                print("No results collected.")
-
+            await self.run_benchmark_suite(gpu_name, model_name, api_url, concurrency_levels, requests_per_level, prompt, email_config, wait_timeout)
         finally:
-            # 5. Teardown
             if mode == "all":
-                self.log_group_start("Teardown")
-                try:
-                    if instance_id:
-                        self.vast.destroy_instance(instance_id)
-                        if os.path.exists(".vast_instance_id"):
-                            os.remove(".vast_instance_id")
-                        if os.path.exists(".vast_api_url"):
-                            os.remove(".vast_api_url")
-                finally:
-                    self.log_group_end()
+                self.teardown_instance()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Gemma Performance Lab Orchestrator")

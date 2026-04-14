@@ -58,26 +58,22 @@ jobs:
         VAST_AI_API_KEY: ${{ secrets.VAST_AI_API_KEY }}
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
-        python orchestrator.py \
+        python provision.py \
           --gpu "${{ github.event.inputs.gpu }}" \
           --model "${{ github.event.inputs.model }}" \
-          ${{ github.event.inputs.template_hash && format('--template-hash {0}', github.event.inputs.template_hash) || '' }} \
-          --provision \
-          --run
+          ${{ github.event.inputs.template_hash && format('--template-hash {0}', github.event.inputs.template_hash) || '' }}
 
     - name: Run Benchmark Suite
       env:
         VAST_AI_API_KEY: ${{ secrets.VAST_AI_API_KEY }}
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
-        python orchestrator.py \
+        python benchmark.py \
           --gpu "${{ github.event.inputs.gpu }}" \
           --model "${{ github.event.inputs.model }}" \
           --concurrency-levels ${{ github.event.inputs.concurrency_levels }} \
           --requests-per-level ${{ github.event.inputs.requests_per_level }} \
-          --prompt "${{ github.event.inputs.prompt }}" \
-          --benchmark \
-          --run
+          --prompt "${{ github.event.inputs.prompt }}"
 
     - name: Upload results
       uses: actions/upload-artifact@v4
@@ -91,4 +87,4 @@ jobs:
       env:
         VAST_AI_API_KEY: ${{ secrets.VAST_AI_API_KEY }}
       run: |
-        python orchestrator.py --teardown --run
+        python teardown.py

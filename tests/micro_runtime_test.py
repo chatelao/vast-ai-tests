@@ -62,16 +62,15 @@ def run_test():
                 print(stdout)
             sys.exit(1)
 
-        # Run Orchestrator
-        print("Running Orchestrator...")
+        # Run benchmark
+        print("Running benchmark script...")
         orch_command = [
-            sys.executable, "orchestrator.py",
+            sys.executable, "benchmark.py",
             "--url", "http://localhost:8000",
             "--model", "facebook/opt-125m",
             "--gpu", "micro-test-cpu",
             "--concurrency-levels", "1",
-            "--requests-per-level", "2",
-            "--run"
+            "--requests-per-level", "2"
         ]
 
         result = subprocess.run(orch_command, capture_output=True, text=True)
