@@ -188,8 +188,23 @@ class Orchestrator:
                 if not instance:
                     raise RuntimeError(f"Instance {instance_id} failed to initialize or become reachable")
 
-                # Construct API URL directly using ssh_host and port 8000
-                api_url = f"http://{instance['ssh_host']}:8000"
+                # Resolve external API URL using public IP and port mappings
+                host = instance.get('public_ipaddr', instance.get('ssh_host'))
+                port = 8000
+                ports = instance.get('ports', {})
+                for port_key, mappings in ports.items():
+                    if port_key.startswith('8000'):
+                        if isinstance(mappings, list) and len(mappings) > 0:
+                            # Handle standard SDK/Docker port mapping structure
+                            mapping = mappings[0]
+                            if isinstance(mapping, dict):
+                                port = mapping.get('HostPort', port)
+                        elif isinstance(mappings, (str, int)):
+                            # Handle potential simplified mapping
+                            port = mappings
+                        break
+
+                api_url = f"http://{host}:{port}"
 
                 with open(".vast_api_url", "w") as f:
                     f.write(api_url)

@@ -26,8 +26,12 @@ class TestTemplateLogic(unittest.TestCase):
         mock_vast.find_offers.return_value = [{"id": 123}]
         mock_vast.rent_instance.return_value = "inst_1"
         mock_vast.wait_for_ssh.return_value = {
-            "ssh_host": "1.2.3.4",
+            "public_ipaddr": "1.2.3.4",
+            "ssh_host": "ssh4.vast.ai",
             "ssh_port": 2222,
+            "ports": {
+                "8000/tcp": [{"HostPort": 12345}]
+            }
         }
 
         async def mock_wait(*args, **kwargs):
@@ -65,13 +69,49 @@ class TestTemplateLogic(unittest.TestCase):
 
     @patch("orchestrator.VastManager")
     @patch("orchestrator.time.sleep")
+    def test_url_resolution_no_ports(self, mock_sleep, MockVastManager):
+        # Verify fallback to port 8000 when ports mapping is missing
+        mock_vast = MockVastManager.return_value
+        mock_vast.find_offers.return_value = [{"id": 123}]
+        mock_vast.rent_instance.return_value = "inst_1"
+        mock_vast.wait_for_ssh.return_value = {
+            "public_ipaddr": "1.2.3.4",
+            "ssh_host": "ssh4.vast.ai",
+            "ssh_port": 2222,
+        }
+
+        async def mock_wait(*args, **kwargs):
+            return True
+        self.orchestrator.wait_for_api_ready = mock_wait
+
+        with patch("orchestrator.LoadTester") as MockLoadTester:
+            mock_tester = MockLoadTester.return_value
+            async def mock_run_bench(concurrency, *args, **kwargs):
+                return {"concurrency": concurrency, "total_tps": 10.0}
+            mock_tester.run_benchmark = mock_run_bench
+
+            asyncio.run(self.orchestrator.run_suite(
+                gpu_name="RTX_4090",
+                model_name="gemma-test",
+                concurrency_levels=[1],
+                requests_per_level=1
+            ))
+
+            MockLoadTester.assert_called_with("http://1.2.3.4:8000", "gemma-test", api_key="vllm-benchmark-token")
+
+    @patch("orchestrator.VastManager")
+    @patch("orchestrator.time.sleep")
     def test_new_template_env_passing(self, mock_sleep, MockVastManager):
         mock_vast = MockVastManager.return_value
         mock_vast.find_offers.return_value = [{"id": 123}]
         mock_vast.rent_instance.return_value = "inst_1"
         mock_vast.wait_for_ssh.return_value = {
-            "ssh_host": "1.2.3.4",
+            "public_ipaddr": "1.2.3.4",
+            "ssh_host": "ssh4.vast.ai",
             "ssh_port": 2222,
+            "ports": {
+                "8000/tcp": [{"HostPort": 12345}]
+            }
         }
 
         async def mock_wait(*args, **kwargs):
@@ -104,8 +144,8 @@ class TestTemplateLogic(unittest.TestCase):
             expected_env = f"-e VLLM_MODEL=gemma-test -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN=test_hf_token -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 1111:1111 -p 7860:7860 -p 8000:8000 -p 8265:8265 -p 8080:8080"
             mock_vast.rent_instance.assert_called_with(123, template_hash="38b2b68cf896e8582dff6f305a2041b1", env=expected_env)
 
-            # Verify LoadTester was initialized with the API key and port 8000
-            MockLoadTester.assert_called_with("http://1.2.3.4:8000", "gemma-test", api_key="vllm-benchmark-token")
+            # Verify LoadTester was initialized with the API key and the correctly resolved URL
+            MockLoadTester.assert_called_with("http://1.2.3.4:12345", "gemma-test", api_key="vllm-benchmark-token")
 
 if __name__ == "__main__":
     unittest.main()
