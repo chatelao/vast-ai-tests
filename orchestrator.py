@@ -180,11 +180,28 @@ class Orchestrator:
                     raise RuntimeError(f"Instance {instance_id} failed to initialize or become reachable")
 
                 # Determine API URL, prioritizing mapped port 18000
-                ports = instance.get('ports', {})
-                if '18000/tcp' in ports:
-                    api_url = f"http://{ports['18000/tcp'][0]['DirectAddress']}"
-                else:
-                    raise RuntimeError(f"Instance {instance_id} does not have port 18000 mapped. vLLM template requires port 18000.")
+                # We may need to wait a few more seconds for port mappings to propagate
+                api_url = None
+                print(f"Waiting for port 18000 mapping for instance {instance_id}...")
+                port_retry_start = time.time()
+                while time.time() - port_retry_start < 60: # Wait up to 60 seconds for port mapping
+                    instances = self.vast.sdk.show_instances()
+                    instance = next((i for i in instances if i['id'] == instance_id), instance)
+                    ports = instance.get('ports', {})
+                    if '18000/tcp' in ports and ports['18000/tcp']:
+                        mapping = ports['18000/tcp'][0]
+                        if 'DirectAddress' in mapping:
+                            api_url = f"http://{mapping['DirectAddress']}"
+                            break
+                        elif 'HostIp' in mapping and 'HostPort' in mapping:
+                            api_url = f"http://{mapping['HostIp']}:{mapping['HostPort']}"
+                            break
+                    time.sleep(5)
+
+                if not api_url:
+                    ports = instance.get('ports', {})
+                    self.log_error(f"Port mappings found: {ports}")
+                    raise RuntimeError(f"Instance {instance_id} does not have port 18000 mapped after timeout. vLLM template requires port 18000.")
 
                 with open(".vast_api_url", "w") as f:
                     f.write(api_url)
