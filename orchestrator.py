@@ -171,7 +171,7 @@ class Orchestrator:
 
                 hf_token = os.getenv("HF_TOKEN", "")
                 vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16"
-                env_vars = f"-e VLLM_MODEL={model_name} -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={vllm_api_key} -p 18000:18000"
+                env_vars = f"-e VLLM_MODEL={model_name} -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={vllm_api_key} -p 1111:11111 -p 7860:17860 -p 8000:18000 -p 8265:28265 -p 8080:18080"
 
                 # Select the best offer (lowest price per hour)
                 offer_id = offers[0]['id']
@@ -188,10 +188,10 @@ class Orchestrator:
                 if not instance:
                     raise RuntimeError(f"Instance {instance_id} failed to initialize or become reachable")
 
-                # Determine API URL, prioritizing mapped port 18000
+                # Determine API URL, prioritizing mapped port 18000 (Internal) / 8000 (External)
                 # We may need to wait a few more seconds for port mappings to propagate
                 api_url = None
-                print(f"Waiting for port 18000 mapping for instance {instance_id}...")
+                print(f"Waiting for vLLM API (port 18000->8000) mapping for instance {instance_id}...")
                 port_retry_start = time.time()
                 while time.time() - port_retry_start < 60: # Wait up to 60 seconds for port mapping
                     instances = self.vast.sdk.show_instances()

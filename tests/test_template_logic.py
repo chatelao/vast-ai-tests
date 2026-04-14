@@ -61,7 +61,7 @@ class TestTemplateLogic(unittest.TestCase):
 
             # Verify rent_instance was called with template_hash
             vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16"
-            expected_env = f"-e VLLM_MODEL=gemma -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN= -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 18000:18000"
+            expected_env = f"-e VLLM_MODEL=gemma -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN= -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 1111:11111 -p 7860:17860 -p 8000:18000 -p 8265:28265 -p 8080:18080"
             mock_vast.rent_instance.assert_called_with(123, template_hash=template_hash, env=expected_env)
 
     @patch("orchestrator.VastManager")
@@ -103,7 +103,7 @@ class TestTemplateLogic(unittest.TestCase):
 
             # Verify rent_instance was called with the correct env string
             vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16"
-            expected_env = f"-e VLLM_MODEL=gemma-test -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN=test_hf_token -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 18000:18000"
+            expected_env = f"-e VLLM_MODEL=gemma-test -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN=test_hf_token -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 1111:11111 -p 7860:17860 -p 8000:18000 -p 8265:28265 -p 8080:18080"
             mock_vast.rent_instance.assert_called_with(123, template_hash="38b2b68cf896e8582dff6f305a2041b1", env=expected_env)
 
             # Verify LoadTester was initialized with the API key
