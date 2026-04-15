@@ -3,6 +3,8 @@ import time
 import sys
 import os
 import requests
+import asyncio
+import aiohttp
 from vastai.sdk import VastAI
 from vastai.utils import parse_env
 
@@ -135,6 +137,62 @@ class VastManager:
         except Exception as e:
             print(f"Error detecting current instance ID: {e}")
         return None
+
+    def resolve_api_url(self, instance_id, internal_port=8000):
+        """Resolves the external API URL for a given instance and internal port."""
+        details = self.get_instance_details(instance_id)
+        if not details:
+            return None
+
+        host = details.get('public_ipaddr', details.get('ssh_host'))
+        port = internal_port
+        ports = details.get('ports', {})
+        if isinstance(ports, dict):
+            for port_key, mappings in ports.items():
+                if port_key.startswith(str(internal_port)):
+                    if isinstance(mappings, list) and len(mappings) > 0:
+                        mapping = mappings[0]
+                        if isinstance(mapping, dict):
+                            port = mapping.get('HostPort', port)
+                    elif isinstance(mappings, (str, int)):
+                        port = mappings
+                    break
+
+        return f"http://{host}:{port}"
+
+    async def wait_for_api_ready(self, url, api_key=None, timeout=1200):
+        """Polls the /v1/models endpoint until it returns 200 OK."""
+        print(f"Waiting for LLM API to be ready at {url}...")
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        start_time = time.time()
+        async with aiohttp.ClientSession() as session:
+            while time.time() - start_time < timeout:
+                elapsed = int(time.time() - start_time)
+                try:
+                    async with session.get(f"{url}/v1/models", headers=headers) as response:
+                        if response.status == 200:
+                            print(f"API is ready after {elapsed}s!")
+                            return True
+                        else:
+                            text = await response.text()
+                            print(f"  ...API returned {response.status}: {text[:100]}")
+                except Exception:
+                    # Generic error (e.g. connection refused) is expected during startup
+                    pass
+                if elapsed % 30 == 0 and elapsed > 0:
+                    print(f"  ...still waiting ({elapsed}s elapsed)")
+                await asyncio.sleep(10)
+        print("Timeout waiting for API to be ready.")
+        return False
+
+    def get_vllm_env_vars(self, model_name, api_key="vllm-benchmark-token"):
+        """Generates the standard vLLM environment variable string."""
+        hf_token = os.getenv("HF_TOKEN", "")
+        vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16 --port 8000"
+        return f"-e VLLM_MODEL={model_name} -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={api_key} -p 1111:1111 -p 7860:7860 -p 8000:8000 -p 8265:8265 -p 8080:8080"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Vast.ai Instance Manager")
