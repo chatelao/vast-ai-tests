@@ -37,10 +37,18 @@ class TestTemplateLogic(unittest.TestCase):
         async def mock_wait(*args, **kwargs):
             return True
 
-        self.orchestrator.wait_for_api_ready = mock_wait
+        # Use the real vast instance in orchestrator, but its methods are mocked via MockVastManager
+        self.orchestrator.vast.wait_for_api_ready = mock_wait
+        # In orchestrator.provision_instance it calls self.vast.resolve_api_url
+        mock_vast.resolve_api_url.return_value = "http://1.2.3.4:12345"
+
+        # Manually return a real string for get_vllm_env_vars to satisfy assert_called_with
+        vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16 --port 8000"
+        expected_env = f"-e VLLM_MODEL=gemma -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN= -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 1111:1111 -p 7860:7860 -p 8000:8000 -p 8265:8265 -p 8080:8080"
+        mock_vast.get_vllm_env_vars.return_value = expected_env
 
         # Mock LoadTester
-        with patch("orchestrator.LoadTester") as MockLoadTester:
+        with patch("bench.speed_test.LoadTester") as MockLoadTester:
             mock_tester = MockLoadTester.return_value
 
             async def mock_run_bench(concurrency, *args, **kwargs):
@@ -63,8 +71,6 @@ class TestTemplateLogic(unittest.TestCase):
             ))
 
             # Verify rent_instance was called with template_hash
-            vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16 --port 8000"
-            expected_env = f"-e VLLM_MODEL=gemma -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN= -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 1111:1111 -p 7860:7860 -p 8000:8000 -p 8265:8265 -p 8080:8080"
             mock_vast.rent_instance.assert_called_with(123, template_hash=template_hash, env=expected_env)
 
     @patch("orchestrator.VastManager")
@@ -82,16 +88,10 @@ class TestTemplateLogic(unittest.TestCase):
 
         async def mock_wait(*args, **kwargs):
             return True
-        self.orchestrator.wait_for_api_ready = mock_wait
-        # Mock get_instance_details to return a realistic response with external port
-        mock_vast.get_instance_details.return_value = {
-            "public_ipaddr": "1.2.3.4",
-            "ports": {
-                "8000/tcp": [{"HostPort": 8888}]
-            }
-        }
+        self.orchestrator.vast.wait_for_api_ready = mock_wait
+        mock_vast.resolve_api_url.return_value = "http://1.2.3.4:8888"
 
-        with patch("orchestrator.LoadTester") as MockLoadTester:
+        with patch("bench.speed_test.LoadTester") as MockLoadTester:
             mock_tester = MockLoadTester.return_value
             async def mock_run_bench(concurrency, *args, **kwargs):
                 return {"concurrency": concurrency, "total_tps": 10.0}
@@ -124,16 +124,14 @@ class TestTemplateLogic(unittest.TestCase):
 
         async def mock_wait(*args, **kwargs):
             return True
-        self.orchestrator.wait_for_api_ready = mock_wait
-        # Mock get_instance_details to return a realistic response with external port
-        mock_vast.get_instance_details.return_value = {
-            "public_ipaddr": "1.2.3.4",
-            "ports": {
-                "8000/tcp": [{"HostPort": 12345}]
-            }
-        }
+        self.orchestrator.vast.wait_for_api_ready = mock_wait
+        mock_vast.resolve_api_url.return_value = "http://1.2.3.4:12345"
 
-        with patch("orchestrator.LoadTester") as MockLoadTester:
+        vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16 --port 8000"
+        expected_env = f"-e VLLM_MODEL=gemma-test -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN=test_hf_token -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 1111:1111 -p 7860:7860 -p 8000:8000 -p 8265:8265 -p 8080:8080"
+        mock_vast.get_vllm_env_vars.return_value = expected_env
+
+        with patch("bench.speed_test.LoadTester") as MockLoadTester:
             mock_tester = MockLoadTester.return_value
             async def mock_run_bench(concurrency, *args, **kwargs):
                 return {
@@ -155,8 +153,6 @@ class TestTemplateLogic(unittest.TestCase):
                 ))
 
             # Verify rent_instance was called with the correct env string
-            vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16 --port 8000"
-            expected_env = f"-e VLLM_MODEL=gemma-test -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN=test_hf_token -e OPEN_BUTTON_TOKEN=vllm-benchmark-token -p 1111:1111 -p 7860:7860 -p 8000:8000 -p 8265:8265 -p 8080:8080"
             mock_vast.rent_instance.assert_called_with(123, template_hash="38b2b68cf896e8582dff6f305a2041b1", env=expected_env)
 
             # Verify LoadTester was initialized with the API key and the correctly resolved URL

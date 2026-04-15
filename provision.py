@@ -1,7 +1,8 @@
 import asyncio
 import argparse
 import sys
-from orchestrator import Orchestrator
+import os
+from infra.vast_manager import VastManager
 
 async def main():
     parser = argparse.ArgumentParser(description="Provision Vast.ai Instance for LLM Benchmarking")
@@ -11,18 +12,38 @@ async def main():
     parser.add_argument("--wait-timeout", type=int, default=1200, help="Wait timeout in seconds")
 
     args = parser.parse_args()
-    orch = Orchestrator()
+    vast = VastManager()
 
     try:
-        api_url = await orch.provision_instance(
-            gpu_name=args.gpu,
-            model_name=args.model,
-            template_hash=args.template_hash,
-            wait_timeout=args.wait_timeout
-        )
+        offers = vast.find_offers(args.gpu)
+        if not offers:
+            raise RuntimeError(f"No offers found for {args.gpu}")
+
+        offer_id = offers[0]['id']
+        vllm_api_key = "vllm-benchmark-token"
+        env_vars = vast.get_vllm_env_vars(args.model, api_key=vllm_api_key)
+
+        instance_id = vast.rent_instance(offer_id, template_hash=args.template_hash, env=env_vars)
+        if not instance_id:
+            raise RuntimeError("Failed to rent instance")
+
+        with open(".vast_instance_id", "w") as f:
+            f.write(str(instance_id))
+
+        if not vast.wait_for_ssh(instance_id, timeout=args.wait_timeout):
+            raise RuntimeError(f"Instance {instance_id} failed to initialize")
+
+        api_url = vast.resolve_api_url(instance_id)
+        with open(".vast_api_url", "w") as f:
+            f.write(api_url)
+
+        print(f"Waiting for API at {api_url}...")
+        if not await vast.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=args.wait_timeout):
+            raise RuntimeError("API failed to become ready")
+
         print(f"Provisioning successful. API URL: {api_url}")
     except Exception as e:
-        orch.log_error(f"Provisioning failed: {e}")
+        print(f"ERROR: Provisioning failed: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -2,12 +2,9 @@ import asyncio
 import json
 import time
 import argparse
-import aiohttp
 import os
-import smtplib
-from email.mime.text import MIMEText
 from infra.vast_manager import VastManager
-from bench.load_tester import LoadTester
+from bench.speed_test import run_speed_test_suite, write_step_summary, send_email_report
 
 class Orchestrator:
     def __init__(self, api_key=None):
@@ -43,75 +40,13 @@ class Orchestrator:
             print(f"ERROR: {msg}")
 
     def write_step_summary(self, results):
-        summary_file = os.getenv("GITHUB_STEP_SUMMARY")
-        if not summary_file or not results:
-            return
-
-        try:
-            with open(summary_file, "a") as f:
-                model = results[0].get('model', 'Unknown')
-                gpu = results[0].get('gpu', 'Unknown')
-                f.write(f"## Benchmark Results: {model} on {gpu}\n\n")
-                f.write("| Concurrency | Avg TTFT (s) | Avg ITL (s) | Avg TPS | Total TPS |\n")
-                f.write("|-------------|--------------|-------------|---------|-----------|\n")
-                for r in results:
-                    c = r.get('concurrency', 'N/A')
-                    ttft = r.get('avg_ttft', 0)
-                    itl = r.get('avg_itl', 0)
-                    avg_tps = r.get('avg_tps', 0)
-                    total_tps = r.get('total_tps', 0)
-                    f.write(f"| {c} | {ttft:.4f} | {itl:.4f} | {avg_tps:.2f} | {total_tps:.2f} |\n")
-                f.write("\n")
-        except Exception as e:
-            self.log_error(f"Failed to write step summary: {e}")
+        write_step_summary(results)
 
     async def wait_for_api_ready(self, url, api_key=None, timeout=1200):
-        print(f"Waiting for LLM API to be ready at {url}...")
-        headers = {}
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
-
-        start_time = time.time()
-        async with aiohttp.ClientSession() as session:
-            while time.time() - start_time < timeout:
-                elapsed = int(time.time() - start_time)
-                try:
-                    async with session.get(f"{url}/v1/models", headers=headers) as response:
-                        if response.status == 200:
-                            print(f"API is ready after {elapsed}s!")
-                            return True
-                        else:
-                            text = await response.text()
-                            print(f"  ...API returned {response.status}: {text[:100]}")
-                except Exception as e:
-                    # Generic error (e.g. connection refused) is expected during startup
-                    pass
-                if elapsed % 30 == 0 and elapsed > 0:
-                    print(f"  ...still waiting ({elapsed}s elapsed)")
-                await asyncio.sleep(10)
-        print("Timeout waiting for API to be ready.")
-        return False
+        return await self.vast.wait_for_api_ready(url, api_key=api_key, timeout=timeout)
 
     def send_email_report(self, results, recipient, smtp_config):
-        """Sends a benchmark report via email."""
-        print(f"Sending email report to {recipient}...")
-        try:
-            body = "LLM Benchmark Results:\n\n"
-            body += json.dumps(results, indent=2)
-
-            msg = MIMEText(body)
-            msg['Subject'] = f"Benchmark Results: {results[0]['model']} on {results[0]['gpu']}"
-            msg['From'] = smtp_config.get('user')
-            msg['To'] = recipient
-
-            with smtplib.SMTP(smtp_config.get('host'), smtp_config.get('port')) as server:
-                if smtp_config.get('user') and smtp_config.get('password'):
-                    server.starttls()
-                    server.login(smtp_config.get('user'), smtp_config.get('password'))
-                server.send_message(msg)
-            print("Email sent successfully!")
-        except Exception as e:
-            print(f"Failed to send email: {e}")
+        send_email_report(results, recipient, smtp_config)
 
     def load_instance_id(self):
         if os.path.exists(".vast_instance_id"):
@@ -132,16 +67,13 @@ class Orchestrator:
     async def provision_instance(self, gpu_name, model_name, template_hash="38b2b68cf896e8582dff6f305a2041b1", wait_timeout=1200):
         self.log_group_start("Instance Provisioning")
         try:
-            # 1. Find and rent instance
             offers = self.vast.find_offers(gpu_name)
             if not offers:
                 self.log_error(f"No offers found for {gpu_name} (or API error occurred)")
                 raise RuntimeError(f"Could not find any offers for {gpu_name}")
 
             vllm_api_key = "vllm-benchmark-token"
-            hf_token = os.getenv("HF_TOKEN", "")
-            vllm_args = "--dtype auto --enforce-eager --max-model-len 512 --block-size 16 --port 8000"
-            env_vars = f"-e VLLM_MODEL={model_name} -e VLLM_ARGS='{vllm_args}' -e HF_TOKEN={hf_token} -e OPEN_BUTTON_TOKEN={vllm_api_key} -p 1111:1111 -p 7860:7860 -p 8000:8000 -p 8265:8265 -p 8080:8080"
+            env_vars = self.vast.get_vllm_env_vars(model_name, api_key=vllm_api_key)
 
             offer_id = offers[0]['id']
             instance_id = self.vast.rent_instance(offer_id, template_hash=template_hash, env=env_vars)
@@ -151,37 +83,16 @@ class Orchestrator:
             with open(".vast_instance_id", "w") as f:
                 f.write(str(instance_id))
 
-            # 2. Wait for instance to be ready
-            instance = self.vast.wait_for_ssh(instance_id)
-            if not instance:
+            if not self.vast.wait_for_ssh(instance_id, timeout=wait_timeout):
                 raise RuntimeError(f"Instance {instance_id} failed to initialize or become reachable")
 
-            # 3. Refresh instance details to get mapped ports from the API
-            details = self.vast.get_instance_details(instance_id) or instance
-            host = details.get('public_ipaddr', details.get('ssh_host'))
-            port = 8000
-            ports = details.get('ports', {})
-            if isinstance(ports, dict):
-                for port_key, mappings in ports.items():
-                    if port_key.startswith('8000'):
-                        if isinstance(mappings, list) and len(mappings) > 0:
-                            mapping = mappings[0]
-                            if isinstance(mapping, dict):
-                                port = mapping.get('HostPort', port)
-                        elif isinstance(mappings, (str, int)):
-                            port = mappings
-                        break
+            api_url = self.vast.resolve_api_url(instance_id)
+            self.log_notice(f"API URL: {api_url}")
 
-            self.log_notice(f"LLM External Port: {port}")
-
-            api_url = f"http://{host}:{port}"
             with open(".vast_api_url", "w") as f:
                 f.write(api_url)
 
-            print(f"Instance ready at {api_url}")
-            print(f"Using template {template_hash}. Waiting for preinstalled vLLM to start...")
-
-            if not await self.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=wait_timeout):
+            if not await self.vast.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=wait_timeout):
                 raise RuntimeError(f"LLM API at {api_url} never became ready within {wait_timeout} seconds")
 
             return api_url
@@ -193,43 +104,26 @@ class Orchestrator:
 
         self.log_group_start("Waiting for API")
         try:
-            if not await self.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=wait_timeout):
+            if not await self.vast.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=wait_timeout):
                 raise RuntimeError(f"LLM API at {api_url} never became ready within {wait_timeout} seconds")
         finally:
             self.log_group_end()
 
-        tester = LoadTester(api_url, model_name, api_key=vllm_api_key)
-        all_results = []
-        for c in concurrency_levels:
-            self.log_group_start(f"Benchmark: Concurrency {c}")
-            try:
-                print(f"Running benchmark with concurrency: {c}")
-                try:
-                    result = await tester.run_benchmark(c, requests_per_level, prompt=prompt)
-                    if result:
-                        result["gpu"] = gpu_name
-                        result["model"] = model_name
-                        all_results.append(result)
-                        print(f"Result: {result['total_tps']:.2f} tokens/s")
-                    else:
-                        print(f"Benchmark failed for concurrency {c} (Is the server running?)")
-                except Exception as e:
-                    self.log_error(f"Error during benchmark: {e}")
-            finally:
-                self.log_group_end()
+        def log_group_cb(title):
+            if title: self.log_group_start(title)
+            else: self.log_group_end()
 
-        if all_results:
-            report_file = f"benchmark_{gpu_name.replace(' ', '_')}_{int(time.time())}.json"
-            with open(report_file, "w") as f:
-                json.dump(all_results, f, indent=2)
-            print(f"Suite complete. Results saved to {report_file}")
-            self.write_step_summary(all_results)
-            if email_config and email_config.get('to'):
-                self.send_email_report(all_results, email_config['to'], email_config['smtp'])
-        else:
-            print("No results collected.")
-
-        return all_results
+        return await run_speed_test_suite(
+            gpu_name=gpu_name,
+            model_name=model_name,
+            api_url=api_url,
+            concurrency_levels=concurrency_levels,
+            requests_per_level=requests_per_level,
+            prompt=prompt,
+            email_config=email_config,
+            api_key=vllm_api_key,
+            log_group_cb=log_group_cb
+        )
 
     def teardown_instance(self):
         instance_id = self.load_instance_id()

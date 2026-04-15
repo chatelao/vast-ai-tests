@@ -1,23 +1,28 @@
 import argparse
-from orchestrator import Orchestrator
+import os
+from infra.vast_manager import VastManager
 
 def main():
     parser = argparse.ArgumentParser(description="Teardown Vast.ai Instance")
-    # Adding arguments just in case, though current Orchestrator.teardown_instance()
-    # uses the persisted .vast_instance_id file.
     parser.add_argument("--instance-id", type=str, help="Specific instance ID to destroy")
 
     args = parser.parse_args()
-    orch = Orchestrator()
+    vast = VastManager()
 
-    if args.instance_id:
-        # If an instance ID is provided, we can manually destroy it.
-        # Orchestrator doesn't have a direct method for this yet that doesn't load from file,
-        # but we can easily call the manager.
-        print(f"Destroying instance {args.instance_id}...")
-        orch.vast.destroy_instance(args.instance_id)
+    instance_id = args.instance_id
+    if not instance_id and os.path.exists(".vast_instance_id"):
+        with open(".vast_instance_id", "r") as f:
+            instance_id = f.read().strip()
+
+    if instance_id:
+        print(f"Destroying instance {instance_id}...")
+        vast.destroy_instance(instance_id)
+        if os.path.exists(".vast_instance_id"):
+            os.remove(".vast_instance_id")
+        if os.path.exists(".vast_api_url"):
+            os.remove(".vast_api_url")
     else:
-        orch.teardown_instance()
+        print("No instance ID found to teardown.")
 
 if __name__ == "__main__":
     main()

@@ -2,7 +2,7 @@ import asyncio
 import argparse
 import sys
 import os
-from orchestrator import Orchestrator
+from bench.speed_test import run_speed_test_suite
 
 async def main():
     parser = argparse.ArgumentParser(description="Run LLM Benchmark Suite")
@@ -22,11 +22,14 @@ async def main():
     parser.add_argument("--smtp-password", type=str, default=os.getenv("SMTP_PASSWORD"), help="SMTP password")
 
     args = parser.parse_args()
-    orch = Orchestrator()
 
-    api_url = args.url or orch.load_api_url()
+    api_url = args.url
+    if not api_url and os.path.exists(".vast_api_url"):
+        with open(".vast_api_url", "r") as f:
+            api_url = f.read().strip()
+
     if not api_url:
-        orch.log_error("API URL not provided and .vast_api_url not found.")
+        print("ERROR: API URL not provided and .vast_api_url not found.")
         sys.exit(1)
 
     email_config = None
@@ -42,7 +45,7 @@ async def main():
         }
 
     try:
-        await orch.run_benchmark_suite(
+        await run_speed_test_suite(
             gpu_name=args.gpu,
             model_name=args.model,
             api_url=api_url,
@@ -50,10 +53,10 @@ async def main():
             requests_per_level=args.requests_per_level,
             prompt=args.prompt,
             email_config=email_config,
-            wait_timeout=args.wait_timeout
+            api_key="vllm-benchmark-token"
         )
     except Exception as e:
-        orch.log_error(f"Benchmarking failed: {e}")
+        print(f"ERROR: Benchmarking failed: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

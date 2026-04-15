@@ -53,27 +53,18 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Start LLM Engine
+    - name: Run End-to-End Benchmark
       env:
         VAST_AI_API_KEY: ${{ secrets.VAST_AI_API_KEY }}
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
-        python provision.py \
-          --gpu "${{ github.event.inputs.gpu }}" \
-          --model "${{ github.event.inputs.model }}" \
-          ${{ github.event.inputs.template_hash && format('--template-hash {0}', github.event.inputs.template_hash) || '' }}
-
-    - name: Run Benchmark Suite
-      env:
-        VAST_AI_API_KEY: ${{ secrets.VAST_AI_API_KEY }}
-        HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      run: |
-        python benchmark.py \
+        python main.py \
           --gpu "${{ github.event.inputs.gpu }}" \
           --model "${{ github.event.inputs.model }}" \
           --concurrency-levels ${{ github.event.inputs.concurrency_levels }} \
           --requests-per-level ${{ github.event.inputs.requests_per_level }} \
-          --prompt "${{ github.event.inputs.prompt }}"
+          --prompt "${{ github.event.inputs.prompt }}" \
+          ${{ github.event.inputs.template_hash && format('--template-hash {0}', github.event.inputs.template_hash) || '' }}
 
     - name: Upload results
       uses: actions/upload-artifact@v4
@@ -81,10 +72,3 @@ jobs:
       with:
         name: benchmark-results
         path: benchmark_*.json
-
-    - name: Stop LLM Engine
-      if: always()
-      env:
-        VAST_AI_API_KEY: ${{ secrets.VAST_AI_API_KEY }}
-      run: |
-        python teardown.py
