@@ -3,6 +3,7 @@ import argparse
 import sys
 import os
 from infra.vast_manager import VastManager
+from infra.logging_utils import log_group_start, log_group_end, log_notice, log_error
 
 async def main():
     parser = argparse.ArgumentParser(description="Provision Vast.ai Instance for LLM Benchmarking")
@@ -15,6 +16,7 @@ async def main():
     vast = VastManager()
 
     try:
+        log_group_start("Infrastructure Provisioning")
         offers = vast.find_offers(args.gpu)
         if not offers:
             raise RuntimeError(f"No offers found for {args.gpu}")
@@ -41,9 +43,11 @@ async def main():
         if not await vast.wait_for_api_ready(api_url, api_key=vllm_api_key, timeout=args.wait_timeout):
             raise RuntimeError("API failed to become ready")
 
-        print(f"Provisioning successful. API URL: {api_url}")
+        log_notice(f"Provisioning successful. API URL: {api_url}")
+        log_group_end()
     except Exception as e:
-        print(f"ERROR: Provisioning failed: {e}")
+        log_group_end()
+        log_error(f"Provisioning failed: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

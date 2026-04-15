@@ -3,6 +3,7 @@ import argparse
 import sys
 import os
 from bench.speed_test import run_speed_test_suite
+from infra.logging_utils import log_group_start, log_group_end, log_notice, log_error, log_group_cb
 
 async def main():
     parser = argparse.ArgumentParser(description="Run LLM Benchmark Suite")
@@ -29,7 +30,7 @@ async def main():
             api_url = f.read().strip()
 
     if not api_url:
-        print("ERROR: API URL not provided and .vast_api_url not found.")
+        log_error("API URL not provided and .vast_api_url not found.")
         sys.exit(1)
 
     email_config = None
@@ -53,10 +54,11 @@ async def main():
             requests_per_level=args.requests_per_level,
             prompt=args.prompt,
             email_config=email_config,
-            api_key="vllm-benchmark-token"
+            api_key="vllm-benchmark-token",
+            log_group_cb=log_group_cb
         )
     except Exception as e:
-        print(f"ERROR: Benchmarking failed: {e}")
+        log_error(f"Benchmarking failed: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
